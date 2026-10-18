@@ -482,6 +482,11 @@ body.sidebar-hidden .content{padding-left:54px}
 .rl-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid var(--separator)}
 .rl-row:last-child{border-bottom:0}
 .rl-row a{color:var(--blue)}
+.cam-btn{display:none;flex-shrink:0}
+@media (pointer:coarse){.cam-btn{display:inline-flex}}
+#scan-box{position:relative;border-radius:12px;overflow:hidden;background:#000}
+#scan-box video{width:100%;max-height:60vh;display:block;object-fit:cover}
+#scan-box .scan-line{position:absolute;left:8%;right:8%;top:50%;height:2px;background:rgba(255,69,58,.9);box-shadow:0 0 8px rgba(255,69,58,.8)}
 </style>
 </head>
 <body>
@@ -533,7 +538,7 @@ body.sidebar-hidden .content{padding-left:54px}
       <div id="sidebar-logo-wrap"><div class="brand-icon">📱</div></div>
       <div class="brand-text">
         <div class="brand-name" id="side-shop-name">PHONE HUB</div>
-        <div class="brand-sub">Look mobile 0756947700</div>
+        <div class="brand-sub">pos-lookmobile 0756947700</div>
       </div>
       <button class="sidebar-collapse-btn" onclick="toggleSidebar()" title="Hide menu">⟨</button>
     </div>
@@ -556,13 +561,8 @@ body.sidebar-hidden .content{padding-left:54px}
       <button class="ios-btn danger" onclick="doLogout()">🚪 <span>Logout</span></button>
     </div>
     <div class="sidebar-footer">
-      <div><span class="version-chip" id="version-chip">v3.2</span></div>
-      <div class="footer-line">
-        powered by <a class="footer-link" href="https://www.lookmobile.online" target="_blank" rel="noopener">Look Mobile</a>
-      </div>
-      <div class="footer-line">
-        <a class="footer-link" href="https://wa.me/94756947700?text=Hi%20Look%20Mobile!" target="_blank" rel="noopener">📞 0756 947 700</a>
-      </div>
+      <div><span class="version-chip" id="version-chip">v4.5</span></div>
+      <div class="footer-line"><a class="footer-link" href="https://wa.me/94756947700?text=Hi%20pos-lookmobile!" target="_blank" rel="noopener">pos-lookmobile 0756947700</a></div>
     </div>
   </aside>
   <main class="content" id="content"></main>
@@ -577,6 +577,9 @@ body.sidebar-hidden .content{padding-left:54px}
 <div id="firebase-badge" class="firebase-badge hidden"><span class="fb-dot"></span><span id="fb-badge-text">Firebase</span></div>
 
 <script>
+/* Host lock: put your real domain(s) here, e.g. ['pos.lookmobile.online'].  Empty list = no restriction. A downloaded copy opened from another place will refuse to run. */
+const ALLOWED_HOSTS = [];
+if (ALLOWED_HOSTS.length && !ALLOWED_HOSTS.includes(location.hostname)) { document.body.innerHTML = '<div style="font:16px sans-serif;padding:40px;text-align:center">This copy is not authorised.</div>'; throw new Error('unauthorised host'); }
 /* ═══════════════════════════════════════════════════════════════
    POS SYNC ENGINE v4.0 — PERMANENT FIX
    ─ Records-diff based sync (no more full-DB overwrites)
@@ -604,16 +607,16 @@ const LS_SAFE_KEY = 'phone_shop_pos_safety_backup';
 const LS_RESET_TOKEN_KEY = 'pos_seen_reset_token';
 const LS_DIRTY_KEY = 'pos_has_unsaved';
 const LS_LAST_SYNC_KEY = 'pos_last_sync_ts';
-const POS_VERSION = 'v4.0';
+const POS_VERSION = 'v4.5';
 
 /* Collections that sync to Firebase */
-const SYNC_COLLECTIONS = ['products','stock_units','accessories','customers','sales','sale_items','repairs','credit_payments','returns','stock_adjustments','shops','shop_repairs','shop_payments','suppliers','orders','order_items','cash_transactions','users','staff','salary_payments','expenses','cash_closings','audit_logs','reload_entries'];
+const SYNC_COLLECTIONS = ['products','stock_units','accessories','customers','sales','sale_items','repairs','credit_payments','returns','stock_adjustments','shops','shop_repairs','shop_payments','suppliers','orders','order_items','cash_transactions','users','staff','salary_payments','expenses','cash_closings','audit_logs','reload_entries','repair_payments'];
 
-const DEFAULT_SETTINGS = { shop_name:'PHONE HUB', shop_address:'123 Main Street, Colombo', shop_phone:'077-0000000', currency:'LKR', low_stock:2, theme:'dark', shop_logo: null, print_size: '58mm' };
+const DEFAULT_SETTINGS = { shop_name:'PHONE HUB', shop_address:'123 Main Street, Colombo', shop_phone:'077-0000000', currency:'LKR', low_stock:2, theme:'dark', shop_logo: null, print_size: '58mm', brand_name:'pos-lookmobile', brand_phone:'0756947700' };
 const ROLE_PERMS = {
-  admin:['dashboard','sales','reload','phonestock','stock','repairs','shoprepair','customers','orders','suppliers','staff','expenses','cashclosing','reports','billsearch','settings'],
-  manager:['dashboard','sales','reload','phonestock','stock','repairs','shoprepair','customers','orders','suppliers','staff','expenses','cashclosing','reports','billsearch'],
-  cashier:['dashboard','sales','reload','phonestock','stock','repairs','shoprepair','customers','orders','billsearch']
+  admin:['dashboard','sales','reload','stock','repairs','phonestock','shoprepair','customers','orders','suppliers','staff','expenses','cashclosing','reports','settings'],
+  manager:['dashboard','sales','reload','stock','repairs','phonestock','shoprepair','customers','orders','suppliers','staff','expenses','cashclosing','reports'],
+  cashier:['dashboard','sales','reload','stock','repairs','phonestock','shoprepair','customers','orders','reports']
 };
 const VIEW_META = {
   dashboard:{icon:'🏠',label:'Home'}, sales:{icon:'🛒',label:'Sale'}, reload:{icon:'📲',label:'Reload'},
@@ -1098,7 +1101,7 @@ function initSidebar() { try { if (localStorage.getItem('pos_sidebar_hidden') ==
 initSidebar();
 
 function createFreshDB() {
-  const d = { products:[], stock_units:[], accessories:[], customers:[], sales:[], sale_items:[], repairs:[], credit_payments:[], returns:[], stock_adjustments:[], shops:[], shop_repairs:[], shop_payments:[], suppliers:[], orders:[], order_items:[], cash_transactions:[], users:[], staff:[], salary_payments:[], expenses:[], cash_closings:[], audit_logs:[], settings:{...DEFAULT_SETTINGS}, ids:{products:1,stock_units:1,accessories:1,customers:1,sales:1,sale_items:1,repairs:1,credit_payments:1,returns:1,stock_adjustments:1,shops:1,shop_repairs:1,shop_payments:1,suppliers:1,orders:1,order_items:1,cash_transactions:1,users:1,staff:1,salary_payments:1,expenses:1,cash_closings:1,audit_logs:1,reload_entries:1} };
+  const d = { products:[], stock_units:[], accessories:[], customers:[], sales:[], sale_items:[], repairs:[], credit_payments:[], returns:[], stock_adjustments:[], shops:[], shop_repairs:[], shop_payments:[], suppliers:[], orders:[], order_items:[], cash_transactions:[], users:[], staff:[], salary_payments:[], expenses:[], cash_closings:[], audit_logs:[], repair_payments:[], settings:{...DEFAULT_SETTINGS}, ids:{products:1,stock_units:1,accessories:1,customers:1,sales:1,sale_items:1,repairs:1,credit_payments:1,returns:1,stock_adjustments:1,shops:1,shop_repairs:1,shop_payments:1,suppliers:1,orders:1,order_items:1,cash_transactions:1,users:1,staff:1,salary_payments:1,expenses:1,cash_closings:1,audit_logs:1,repair_payments:1,reload_entries:1} };
   initUsers(d); return d;
 }
 function initUsers(d) {
@@ -1241,9 +1244,11 @@ function migrateDB() {
   if (!DB.settings) DB.settings = {...DEFAULT_SETTINGS};
   if (DB.settings.shop_logo === undefined) DB.settings.shop_logo = null;
   if (!DB.settings.print_size) DB.settings.print_size = '58mm';
+  if (!DB.settings.brand_name || DB.settings.brand_name === 'Look Mobile') DB.settings.brand_name = 'pos-lookmobile';
+  if (!DB.settings.brand_phone) DB.settings.brand_phone = '0756947700';
   if (!DB.users || !DB.users.length) initUsers(DB);
   if (!DB.ids) DB.ids = {products:1,stock_units:1,accessories:1,customers:1,sales:1,sale_items:1,repairs:1,credit_payments:1,returns:1,stock_adjustments:1,shops:1,shop_repairs:1,shop_payments:1,suppliers:1,orders:1,order_items:1,cash_transactions:1,users:DB.users.length+1};
-  ['accessories','credit_payments','returns','stock_adjustments','shops','shop_repairs','shop_payments','suppliers','orders','order_items','cash_transactions','staff','salary_payments','expenses','cash_closings','audit_logs','reload_entries'].forEach(k => { if (!DB.ids[k]) DB.ids[k] = 1; });
+  ['accessories','credit_payments','returns','stock_adjustments','shops','shop_repairs','shop_payments','suppliers','orders','order_items','cash_transactions','staff','salary_payments','expenses','cash_closings','audit_logs','reload_entries','repair_payments'].forEach(k => { if (!DB.ids[k]) DB.ids[k] = 1; });
   SYNC_COLLECTIONS.forEach(k => { if (!Array.isArray(DB[k])) DB[k] = []; });
   DB.products.forEach(p => { if (!p.code) p.code = makeProductCode(p.id); if (!p.barcode) p.barcode = makeBarcode(1, p.id); });
   DB.accessories.forEach(a => { if (!a.code) a.code = makeAccessoryCode(a.id); if (a.warranty_months === undefined) a.warranty_months = 0; if (a.barcode === undefined) a.barcode = ''; if (!a.barcode) a.barcode = makeBarcode(2, a.id); });
@@ -1483,8 +1488,8 @@ function buildNav() { const nav = document.getElementById('nav'); const perms = 
 function buildMobileTabs() {
   const tabs = document.getElementById('mobile-tabs'); if (!tabs) return;
   const perms = ROLE_PERMS[currentUser.role]||[];
-  const priority = ['dashboard','sales','reload','phonestock','repairs','orders','stock','customers','suppliers','staff','expenses','cashclosing','reports','settings','billsearch','shoprepair'];
-  const shown = priority.filter(k => perms.includes(k)).slice(0, 4);
+  const priority = ['dashboard','sales','reload','stock','repairs','phonestock','orders','customers','shoprepair','suppliers','staff','expenses','cashclosing','reports','settings'];
+  const shown = priority.filter(k => perms.includes(k)).slice(0, 5);
   let html = shown.map(k => { const m = VIEW_META[k]; return `<a data-view="${k}" class="${k===currentView?'active':''}"><span class="mt-icon">${m.icon}</span><span class="mt-label">${m.label}</span></a>`; }).join('');
   html += `<a data-more="1" class="more-btn"><span class="mt-icon">☰</span><span class="mt-label">More</span></a>`;
   tabs.innerHTML = html;
@@ -1497,21 +1502,74 @@ document.getElementById('nav').addEventListener('click', e => {
   currentView = v; document.querySelectorAll('#nav a').forEach(x => x.classList.toggle('active', x===a));
   render(); buildMobileTabs(); closeMobileSidebar();
 });
+(function(){
+  const c=document.getElementById('content'), d=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
+  Object.defineProperty(c,'innerHTML',{configurable:true,get(){return d.get.call(this);},set(v){
+    const sv=this.querySelector('.view-scroll'); let y,st;
+    if(v===''){ this._sy=window.scrollY; this._st=sv?sv.scrollTop:0; this._t=Date.now(); d.set.call(this,v); return; }
+    if(this._t&&Date.now()-this._t<200){ y=this._sy; st=this._st; } else { y=window.scrollY; st=sv?sv.scrollTop:0; }
+    this._t=0; d.set.call(this,v);
+    if(window.__viewChanged){ y=0; st=0; }
+    if(y) window.scrollTo(0,y);
+    const n=this.querySelector('.view-scroll'); if(n&&st) n.scrollTop=st;
+  }});
+})();
 function render() {
   if (!currentUser) return;
   if (!can(currentView)) currentView = firstAllowedView();
   const c = document.getElementById('content');
-  const sameView = c.dataset.view === currentView;
+  const sameView = c.dataset.view === currentView; window.__viewChanged = !sameView;
   const prevScroll = sameView ? (c.querySelector('.view-scroll')?.scrollTop || 0) : 0;
   c.innerHTML = '';
-  (views[currentView]||renderDashboard)(c);
+  (views[currentView]||renderDashboard)(c); window.__viewChanged = false;
   c.dataset.view = currentView;
   if (prevScroll) { const sv = c.querySelector('.view-scroll'); if (sv) sv.scrollTop = prevScroll; }
   applyLogo(); document.getElementById('side-shop-name').textContent = DB.settings.shop_name;
-  buildMobileTabs();
+  buildMobileTabs(); applyBrand();
+}
+function applyBrand(){const st=DB.settings||{},n=st.brand_name||'pos-lookmobile',p=st.brand_phone||'0756947700';const sub=document.querySelector('.brand-sub');if(sub)sub.textContent=n+' '+p;}
+const FOOT_HTML = '<div><span class="version-chip" id="version-chip"></span></div><div class="footer-line"><a class="footer-link" href="https://wa.me/94756947700?text=Hi%20pos-lookmobile!" target="_blank" rel="noopener">pos-lookmobile 0756947700</a></div>';
+function guardFooter(){
+  const sb=document.getElementById('sidebar'); if(!sb) return;
+  let f=sb.querySelector('.sidebar-footer');
+  if(!f){ f=document.createElement('div'); f.className='sidebar-footer'; sb.appendChild(f); }
+  const a=f.querySelector('.footer-link');
+  const bad=!a||a.textContent!=='pos-lookmobile 0756947700'||(a.getAttribute('href')||'').indexOf('94756947700')<0||f.children.length!==2||f.getAttribute('style')||getComputedStyle(f).display==='none'||getComputedStyle(a).display==='none';
+  if(bad){ f.removeAttribute('style'); f.className='sidebar-footer'; f.innerHTML=FOOT_HTML; const vc=f.querySelector('#version-chip'); if(vc) vc.textContent=POS_VERSION; }
+}
+setTimeout(()=>{ guardFooter(); const sb=document.getElementById('sidebar'); if(sb) new MutationObserver(guardFooter).observe(sb,{childList:true,subtree:true,characterData:true,attributes:true}); setInterval(guardFooter,2000); },0);
+/* ═══ CAMERA BARCODE SCANNER (phone / tablet) ═══ */
+let scanState = null;
+function loadScriptOnce(src){ return new Promise((res,rej)=>{ if(document.querySelector('script[data-src="'+src+'"]')) return res(); const e=document.createElement('script'); e.src=src; e.dataset.src=src; e.onload=res; e.onerror=()=>rej(new Error('load failed')); document.head.appendChild(e); }); }
+function stopScan(){ if(!scanState) return; const st=scanState; scanState=null; try{clearTimeout(st.timer);}catch(e){} try{st.stream&&st.stream.getTracks().forEach(t=>t.stop());}catch(e){} try{st.reader&&st.reader.reset();}catch(e){} }
+const __closeModalBase = closeModal;
+closeModal = function(){ stopScan(); __closeModalBase(); };
+async function openScanner(inputId, fnName){
+  if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)){ toast('Camera needs https and a supported browser','error'); return; }
+  document.getElementById('modal-root').innerHTML = `<div class="modal-bg"><div class="modal"><h2>📷 Scan barcode</h2><div id="modal-body"><div id="scan-box"><video id="scan-video" playsinline muted autoplay></video><div class="scan-line"></div></div><div id="scan-msg" class="muted small center" style="margin-top:8px">Point the camera at the barcode</div></div><div class="row gap" style="justify-content:flex-end;margin-top:14px"><button class="ios-pill ghost" onclick="closeModal()">Cancel</button></div></div></div>`;
+  const v=document.getElementById('scan-video'), msg=t=>{const m=document.getElementById('scan-msg'); if(m) m.textContent=t;};
+  const st = scanState = {};
+  const found = code => { if(scanState!==st) return; try{navigator.vibrate&&navigator.vibrate(60);}catch(e){} closeModal(); const el=document.getElementById(inputId); if(el) el.value=code; const fn=window[fnName]; if(typeof fn==='function') fn(code); toast('Scanned: '+code,'success'); };
+  try {
+    if('BarcodeDetector' in window){
+      st.stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+      if(scanState!==st){ st.stream.getTracks().forEach(t=>t.stop()); return; }
+      v.srcObject = st.stream; await v.play();
+      const det = new BarcodeDetector();
+      const tick = async () => { if(scanState!==st) return; try{ const r=await det.detect(v); if(r.length){ found(r[0].rawValue); return; } }catch(e){} st.timer=setTimeout(tick,150); };
+      tick();
+    } else {
+      msg('Loading scanner…');
+      await loadScriptOnce('https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js');
+      if(scanState!==st) return;
+      const reader = new ZXing.BrowserMultiFormatReader(); st.reader = reader;
+      msg('Point the camera at the barcode');
+      reader.decodeFromConstraints({video:{facingMode:'environment'},audio:false}, 'scan-video', (res)=>{ if(res) found(res.getText()); });
+    }
+  } catch(e){ closeModal(); toast('Camera error: '+(e.message||'permission denied'),'error'); }
 }
 function navigateTo(view) { if (!can(view)) { toast('Access denied','error'); return; } currentView = view; document.querySelectorAll('#nav a').forEach(x => x.classList.toggle('active', x.dataset.view === view)); render(); }
-function searchBar(id, placeholder, oninput='') { return `<div class="ios-search"><input id="${id}" placeholder="${placeholder}" oninput="${oninput}" autocomplete="off"><button class="clear" onclick="clearSearch('${id}','${oninput}')">✕</button></div>`; }
+function searchBar(id, placeholder, oninput='') { const cam = ['pstock-search','acc-search','rep-search'].includes(id) ? `<button type="button" class="ios-pill blue cam-btn" onclick="openScanner('${id}','${oninput.split('(')[0]}')">📷</button>` : ''; return `<div class="ios-search"><input id="${id}" placeholder="${placeholder}" oninput="${oninput}" autocomplete="off"><button class="clear" onclick="clearSearch('${id}','${oninput}')">✕</button></div>${cam}`; }
 function clearSearch(id, oninput) { const el = document.getElementById(id); if (!el) return; el.value = ''; el.focus(); if (!oninput) return; const m = oninput.match(/^(\w+)\s*\(/); if (m && typeof window[m[1]] === 'function') window[m[1]](''); }
 
 document.addEventListener('keydown', e => {
@@ -1545,12 +1603,13 @@ function getCashSummary(dateStr = today()) {
   const cashIns = (DB.cash_transactions||[]).filter(t => (t.created_at||'').startsWith(dateStr) && t.type === 'cash_in').reduce((a,t)=>a+(Number(t.amount)||0),0);
   const cashOuts = (DB.cash_transactions||[]).filter(t => (t.created_at||'').startsWith(dateStr) && t.type === 'cash_out').reduce((a,t)=>a+(Number(t.amount)||0),0);
   const cashReturns = (DB.returns||[]).filter(r => (r.created_at||'').startsWith(dateStr) && r.refund_method === 'cash').reduce((a,r)=>a+(Number(r.refund_amount)||0),0);
-  return {salesCash,creditCash,cashIns,cashOuts,cashReturns,balance:salesCash+creditCash+cashIns-cashOuts-cashReturns};
+  const repairCash = (DB.repair_payments||[]).filter(p => (p.created_at||'').startsWith(dateStr)).reduce((a,p)=>a+(Number(p.amount)||0),0);
+  return {salesCash,creditCash,repairCash,cashIns,cashOuts,cashReturns,balance:salesCash+creditCash+repairCash+cashIns-cashOuts-cashReturns};
 }
 function showCashBalance() {
   const cs=getCashSummary(); const moves=cashMovementList();
   openModal('💵 Cashier Balance — Today', `<div class="form-grid">
-    <div class="card" style="background:var(--glass-hover);padding:12px"><div class="row" style="justify-content:space-between"><span>Cash Sales</span><b class="success">+${fmtInt(cs.salesCash)}</b></div><div class="row" style="justify-content:space-between;margin-top:7px"><span>Credit Payments (Cash)</span><b class="success">+${fmtInt(cs.creditCash)}</b></div><div class="row" style="justify-content:space-between;margin-top:7px"><span>Manual Cash In</span><b class="success">+${fmtInt(cs.cashIns)}</b></div><div class="row" style="justify-content:space-between;margin-top:7px"><span>Cash Out</span><b class="warn">-${fmtInt(cs.cashOuts)}</b></div><div class="row" style="justify-content:space-between;margin-top:7px"><span>Cash Refunds</span><b class="danger-c">-${fmtInt(cs.cashReturns)}</b></div><div class="row" style="justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--separator);font-size:17px"><b>Expected Cash</b><b class="success">${fmtInt(cs.balance)}</b></div></div>
+    <div class="card" style="background:var(--glass-hover);padding:12px"><div class="row" style="justify-content:space-between"><span>Cash Sales</span><b class="success">+${fmtInt(cs.salesCash)}</b></div><div class="row" style="justify-content:space-between;margin-top:7px"><span>Credit Payments (Cash)</span><b class="success">+${fmtInt(cs.creditCash)}</b></div><div class="row" style="justify-content:space-between;margin-top:7px"><span>Repair Payments</span><b class="success">+${fmtInt(cs.repairCash)}</b></div><div class="row" style="justify-content:space-between;margin-top:7px"><span>Manual Cash In</span><b class="success">+${fmtInt(cs.cashIns)}</b></div><div class="row" style="justify-content:space-between;margin-top:7px"><span>Cash Out</span><b class="warn">-${fmtInt(cs.cashOuts)}</b></div><div class="row" style="justify-content:space-between;margin-top:7px"><span>Cash Refunds</span><b class="danger-c">-${fmtInt(cs.cashReturns)}</b></div><div class="row" style="justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--separator);font-size:17px"><b>Expected Cash</b><b class="success">${fmtInt(cs.balance)}</b></div></div>
     ${moves.length?`<div><div class="field-label" style="margin-bottom:7px">Manual movements</div><div style="max-height:220px;overflow:auto;background:var(--glass-hover);border-radius:var(--radius-md);padding:5px">${moves.map(t=>`<div class="row" style="justify-content:space-between;padding:8px;border-bottom:1px solid var(--separator)"><div><div class="strong small">${t.type==='cash_out'?'💸':'💵'} ${esc(t.note)}</div><div class="muted small">${esc(t.category||'Other')} · ${esc((t.created_at||'').slice(11,16))}</div></div><b class="${t.type==='cash_out'?'warn':'success'}">${t.type==='cash_out'?'-':'+'}${fmtInt(t.amount)}</b></div>`).join('')}</div></div>`:''}
   </div><div class="row gap" style="margin-top:12px"><button class="ios-pill orange" style="flex:1" onclick="closeModal();showCashMovement('cash_out')">💸 Cash Out</button><button class="ios-pill green" style="flex:1" onclick="closeModal();showCashMovement('cash_in')">💵 Cash In</button></div>`,()=>{},'Close');
 }
@@ -1812,7 +1871,8 @@ function showAllCashMovements(scope) {
   let all = (DB.cash_transactions||[]).slice().sort((a,b)=>b.id-a.id);
   if (scope === 'today') all = cashMovementList();
   const li = t => `<li><div><div class="strong small">${t.type==='cash_out'?'💸 Cash Out':'💵 Cash In'} · ${esc(t.note)}</div><div class="muted small">${esc(t.category||'Other')} · ${esc((t.created_at||'').slice(0,16).replace('T',' '))}</div></div><b class="${t.type==='cash_out'?'warn':'success'}">${t.type==='cash_out'?'-':'+'}${fmtInt(t.amount)}</b></li>`;
-  openModal(scope==='today' ? '💵 Today — All Cash In/Out' : '💵 All Cash In/Out', all.length ? `<div style="max-height:60vh;overflow:auto"><ul class="list">${all.map(li).join('')}</ul></div>` : '<p class="muted center pad small">No cash movements</p>', () => {}, 'Close');
+  const out = all.filter(t=>t.type==='cash_out').reduce((a,t)=>a+Number(t.amount||0),0), inn = all.filter(t=>t.type==='cash_in').reduce((a,t)=>a+Number(t.amount||0),0);
+  openModal(scope==='today' ? '💵 Today — Cash In / Out' : '💵 All Cash In/Out', `<div class="row" style="gap:8px;margin-bottom:10px"><div class="rl-cell" style="flex:1"><div class="muted" style="font-size:10.5px">Cash Out</div><div class="strong warn">${fmtInt(out)}</div></div><div class="rl-cell" style="flex:1"><div class="muted" style="font-size:10.5px">Cash In</div><div class="strong success">${fmtInt(inn)}</div></div></div>` + (all.length ? `<div style="max-height:50vh;overflow:auto"><ul class="list">${all.slice(0,scope==='today'?all.length:30).map(li).join('')}</ul></div>` : '<p class="muted center pad small">No cash movements</p>') + `<button class="ios-pill blue" style="width:100%;margin-top:10px" onclick="closeModal();reportTab='cash';repRange='${scope==='today'?'today':'1m'}';navigateTo('reports')">More — full details in Reports ›</button>`, () => {}, 'Close');
 }
 
 /* ═══ DASHBOARD ═══ */
@@ -1823,6 +1883,7 @@ function renderDashboard(root) {
   const totalToday = todaySales.reduce((a,s)=>a+s.total,0);
   const profitToday = todaySales.reduce((a,s)=>a+s.total-(s.cost_total||0),0);
   const activeRepairs = DB.repairs.filter(r=>r.status!=='delivered').length;
+  const repDoneToday = DB.repairs.filter(r=>r.status==='delivered'&&(r.delivered_at||'').startsWith(today())).length, repReady = DB.repairs.filter(r=>r.status==='done').length;
   const inStock = DB.stock_units.filter(u=>u.status==='in_stock').length;
   const accQty = DB.accessories.reduce((a,x)=>a+(x.qty||0),0);
   const phoneStockCost = DB.stock_units.filter(u => u.status === 'in_stock').reduce((a,u) => a + (Number(u.cost_price)||0), 0);
@@ -1843,7 +1904,8 @@ function renderDashboard(root) {
   const costVisible = canSeeCost();
   const rs = reloadDaySummary(d);
   const reloadSalesToday = reloadEntriesFor(d).filter(x=>x.type==='sale').reduce((a,x)=>a+Number(x.amount||0),0);
-  const profitTodayAll = profitToday - reloadSalesToday + (rs.hasClosing ? rs.profit : 0);
+  const repProfitToday = DB.repairs.filter(r=>r.status==='delivered'&&(r.delivered_at||'').startsWith(today())).reduce((a,r)=>a+(Number(r.final_cost)||0)-(Number(r.cost)||0),0);
+  const profitTodayAll = profitToday - reloadSalesToday + (rs.hasClosing ? rs.profit : 0) + repProfitToday;
   const q = dashQuery.toLowerCase();
   let recentSales = [...DB.sales].sort((a,b)=>b.id-a.id);
   let recentRepairs = [...DB.repairs].sort((a,b)=>b.id-a.id);
@@ -1856,27 +1918,25 @@ function renderDashboard(root) {
     <div class="view-scroll">
       <div class="stat-grid" style="margin-bottom:14px">
         <div class="stat" onclick="navigateTo('reports')"><div class="stat-icon">💰</div><div class="stat-label">Today's Sales</div><div class="stat-value">${fmtInt(totalToday)}</div><div class="stat-sub">${todaySales.length} transactions</div></div>
-        ${costVisible ? `<div class="stat" onclick="navigateTo('reports')"><div class="stat-icon">📈</div><div class="stat-label">Profit Today</div><div class="stat-value success">${fmtInt(profitTodayAll)}</div><div class="stat-sub">${rs.activeCount&&!rs.hasClosing?'reload profit pending':'after cost'}</div></div>` : ''}
+        ${costVisible ? `<div class="stat" onclick="navigateTo('reports')"><div class="stat-icon">📈</div><div class="stat-label">Profit Today</div><div class="stat-value success">${fmtInt(profitTodayAll)}</div><div class="stat-sub">${rs.activeCount&&!rs.hasClosing?'reload profit pending':'incl. reload & repair'}${repProfitToday?' · repair '+fmtInt(repProfitToday):''}</div></div>` : ''}
         <div class="stat" onclick="navigateTo('orders')"><div class="stat-icon">📋</div><div class="stat-label">Active Orders</div><div class="stat-value primary-c">${activeOrders}</div><div class="stat-sub">${pendingOrderItems} item${pendingOrderItems!==1?'s':''} pending</div></div>
         <div class="stat" onclick="navigateTo('phonestock')"><div class="stat-icon">💰</div><div class="stat-label">Phone Stock (Cost)</div><div class="stat-value primary-c">${fmtInt(phoneStockCost)}</div><div class="stat-sub">${costVisible ? `sale: ${fmtInt(phoneStockSale)}` : 'cost value'}</div></div>
         <div class="stat" onclick="navigateTo('stock')"><div class="stat-icon">💵</div><div class="stat-label">Stock (Cost)</div><div class="stat-value primary-c">${fmtInt(accessoryStockCost)}</div><div class="stat-sub">${costVisible ? `sale: ${fmtInt(accessoryStockSale)}` : 'cost value'}</div></div>
         ${returnsToday > 0 ? `<div class="stat" onclick="navigateTo('reports')" style="border-color:rgba(255,69,58,.5)"><div class="stat-icon">↩️</div><div class="stat-label">Returns Today</div><div class="stat-value danger-c">${fmtInt(returnsToday)}</div><div class="stat-sub">${todayReturns.length} item${todayReturns.length!==1?'s':''}${restockedToday>0?` · ${restockedToday} restocked`:''}</div></div>` : ''}
         <div class="stat" onclick="navigateTo('customers')" style="${totalCredit>0?'border-color:rgba(255,159,10,.5)':''}"><div class="stat-icon">💳</div><div class="stat-label">Total Credit</div><div class="stat-value ${totalCredit>0?'warn':''}">${fmtInt(totalCredit)}</div><div class="stat-sub">${creditCount} customer${creditCount!==1?'s':''} owe</div></div>
         <div class="stat" onclick="navigateTo('shoprepair')" style="${totalShopOutstanding>0?'border-color:rgba(255,69,58,.5)':''}"><div class="stat-icon">🏪</div><div class="stat-label">Shop Outstanding</div><div class="stat-value ${totalShopOutstanding>0?'danger-c':''}">${fmtInt(totalShopOutstanding)}</div><div class="stat-sub">${shopOutstandingCount} shop${shopOutstandingCount!==1?'s':''} owe</div></div>
-        <div class="stat" onclick="navigateTo('repairs')"><div class="stat-icon">🔧</div><div class="stat-label">Active Repairs</div><div class="stat-value warn">${activeRepairs}</div><div class="stat-sub">not delivered</div></div>
+        <div class="stat" onclick="navigateTo('repairs')"><div class="stat-icon">🔧</div><div class="stat-label">Active Repairs</div><div class="stat-value warn">${activeRepairs}</div><div class="stat-sub">✅ ${repDoneToday} done today · ${repReady} ready</div></div>
         <div class="stat" onclick="navigateTo('phonestock')"><div class="stat-icon">📱</div><div class="stat-label">Phones In Stock</div><div class="stat-value primary-c">${inStock}</div><div class="stat-sub">units available</div></div>
         <div class="stat" onclick="navigateTo('stock')"><div class="stat-icon">📦</div><div class="stat-label">Accessories Qty</div><div class="stat-value">${accQty}</div><div class="stat-sub">${DB.accessories.length} items</div></div>
-        <div class="stat" onclick="navigateTo('billsearch')"><div class="stat-icon">🔎</div><div class="stat-label">Bill Search</div><div class="stat-value primary-c">${DB.sales.length}</div><div class="stat-sub">total invoices</div></div>
         <div class="stat" onclick="navigateTo('reload')"><div class="stat-icon">📲</div><div class="stat-label">Reload Today</div><div class="stat-value primary-c">${fmtInt(rs.sales)}</div><div class="stat-sub">${costVisible ? (rs.hasClosing ? `Profit ${fmtInt(rs.profit)} · ${fmtPct(rs.pct)}` : (rs.activeCount ? 'Profit: enter all SIM balances' : 'Sales · no SIM data yet')) : 'reload sales'}</div></div>
       </div>
-      ${(()=>{ const cs=getCashSummary(); return `<div class="stat-grid" style="margin-bottom:14px"><div class="stat" onclick="showCashBalance()"><div class="stat-icon">💵</div><div class="stat-label">Cashier Cash</div><div class="stat-value success">${fmtInt(cs.balance)}</div><div class="stat-sub">recorded cash balance today</div></div><div class="stat"><div class="stat-icon">💸</div><div class="stat-label">Cash Out Today</div><div class="stat-value warn">${fmtInt(cs.cashOuts)}</div><div class="stat-sub">${cashMovementList().length} cash movement${cashMovementList().length!==1?'s':''}</div></div></div>`; })()}
+      ${(()=>{ const cs=getCashSummary(); return `<div class="stat-grid" style="margin-bottom:14px"><div class="stat" onclick="showCashBalance()"><div class="stat-icon">💵</div><div class="stat-label">Cashier Cash</div><div class="stat-value success">${fmtInt(cs.balance)}</div><div class="stat-sub">recorded cash balance today</div></div><div class="stat" style="cursor:pointer" onclick="showAllCashMovements('today')"><div class="stat-icon">💸</div><div class="stat-label">Cash Out Today · tap</div><div class="stat-value warn">${fmtInt(cs.cashOuts)}</div><div class="stat-sub">${cashMovementList().length} cash movement${cashMovementList().length!==1?'s':''}</div></div></div>`; })()}
       ${dashboardChartsCard()}
       ${(totalCredit > 0 || totalShopOutstanding > 0) ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px" class="dash-2col">
         ${totalCredit > 0 ? `<div class="card" style="border-color:rgba(255,159,10,.5);cursor:pointer" onclick="navigateTo('customers')"><h3>💳 Customer Credit <span style="float:right;color:var(--blue);font-size:12px">View all ›</span></h3><ul class="list">${DB.customers.filter(c=>(Number(c.balance)||0) > 0).sort((a,b)=>b.balance-a.balance).slice(0,6).map(c=>`<li onclick="event.stopPropagation();recordCreditPayment(${c.id})" style="cursor:pointer"><div><div class="strong">${esc(c.name)}</div><div class="muted small">${esc(c.phone||'-')}</div></div><div class="row gap"><span class="danger-c strong">${fmtInt(c.balance)}</span><button class="ios-pill orange sm">Pay</button></div></li>`).join('')}</ul></div>` : ''}
         ${totalShopOutstanding > 0 ? `<div class="card" style="border-color:rgba(255,69,58,.5);cursor:pointer" onclick="navigateTo('shoprepair')"><h3>🏪 Shop Outstanding <span style="float:right;color:var(--blue);font-size:12px">View all ›</span></h3><ul class="list">${DB.shops.filter(s=>calcShopOutstanding(s) > 0.5).sort((a,b)=>calcShopOutstanding(b)-calcShopOutstanding(a)).slice(0,6).map(s=>`<li><div><div class="strong">${esc(s.name)}</div><div class="muted small">${esc(s.phone||'-')}</div></div><div class="row gap"><span class="danger-c strong">${fmtInt(calcShopOutstanding(s))}</span></div></li>`).join('')}</ul></div>` : ''}
       </div>` : ''}
-      <div class="card" style="margin-bottom:14px"><div class="row" style="justify-content:space-between;margin-bottom:8px"><h3>💵 Today's Cash Movements</h3><span class="muted small">Cashier: ${esc(currentUser?.name||'')}</span></div>${cashMovementList().length ? `<ul class="list">${cashMovementList().slice(0,3).map(t=>`<li><div><div class="strong">${t.type==='cash_out'?'💸 Cash Out':'💵 Cash In'} · ${esc(t.note)}</div><div class="muted small">${esc(t.category||'Other')} · ${esc((t.created_at||'').slice(11,16))}</div></div><div class="${t.type==='cash_out'?'warn':'success'} strong">${t.type==='cash_out'?'-':'+'}${fmtInt(t.amount)}</div></li>`).join('')}</ul>${cashMovementList().length>3 ? `<button class="ios-pill ghost sm" style="margin-top:8px;width:100%" onclick="showAllCashMovements('today')">More (${cashMovementList().length-3}) ›</button>` : ''}` : '<p class="muted center pad small">No manual cash movements today</p>'}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px" class="dash-2col">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px" class="dash-2col">
         <div class="card" style="cursor:pointer" onclick="navigateTo('reports')"><h3>Recent Sales <span style="float:right;color:var(--blue);font-size:12px">View all ›</span></h3>${recentSales.length ? `<ul class="list">${recentSales.map(s=>{ const c = DB.customers.find(x=>x.id===s.customer_id); const rt = getSaleReturnTotal(s.id); return `<li><div><div class="strong">${esc(s.invoice_no)}${rt>0?' <span class="danger-c small">↩</span>':''}</div><div class="muted small">${esc(c?.name||'Walk-in')}${s.balance>0?` · <span class="warn">bal ${fmtInt(s.balance)}</span>`:''}</div></div><div class="success strong">${fmtInt(s.total)}</div></li>`; }).join('')}</ul>` : '<p class="muted pad center">No sales yet</p>'}</div>
         <div class="card" style="cursor:pointer" onclick="navigateTo('repairs')"><h3>Recent Repairs <span style="float:right;color:var(--blue);font-size:12px">View all ›</span></h3>${recentRepairs.length ? `<ul class="list">${recentRepairs.map(r=>{ const c = DB.customers.find(x=>x.id===r.customer_id); return `<li><div><div class="strong">${esc(r.device_brand)} ${esc(r.device_model)}</div><div class="muted small">${esc(r.job_no)} · ${esc(c?.name||'-')}</div></div><span class="badge badge-${r.status}">${r.status.replace(/_/g,' ')}</span></li>`; }).join('')}</ul>` : '<p class="muted pad center">No repairs yet</p>'}</div>
       </div>
@@ -1893,8 +1953,9 @@ let cart = [];
 let salesTab = 'phones';
 let salesSearchQ = '';
 
+let pendingCartItems = [];
 function renderSales(root) {
-  cart = []; salesSearchQ = '';
+  cart = pendingCartItems.splice(0); salesSearchQ = '';
   root.innerHTML = `
     <div class="view-shell" style="overflow:hidden">
       <div class="page-head"><h1>New Sale</h1>
@@ -1907,7 +1968,7 @@ function renderSales(root) {
               <button class="${salesTab==='phones'?'active':''}" onclick="salesSetTab('phones',this)" style="flex:1">📱 Phones</button>
               <button class="${salesTab==='accessories'?'active':''}" onclick="salesSetTab('accessories',this)" style="flex:1">📦 Accessories</button>
             </div>
-            <div class="ios-search" style="max-width:none;width:100%"><input id="sales-search-input" placeholder="Type to search..." oninput="salesSearch(this.value)" autocomplete="off"><button class="clear" onclick="salesClearSearch()">✕</button></div>
+            <div style="display:flex;gap:8px;align-items:center"><div class="ios-search" style="max-width:none;flex:1"><input id="sales-search-input" placeholder="Type to search..." oninput="salesSearch(this.value)" autocomplete="off"><button class="clear" onclick="salesClearSearch()">✕</button></div><button type="button" class="ios-pill blue cam-btn" onclick="openScanner('sales-search-input','salesSearch')">📷</button></div>
           </div>
           <div class="sale-results-area" id="search-results-wrap"><div id="search-results"><p class="muted center pad small">Start typing to search items...</p></div></div>
           <div class="bill-fields">
@@ -1959,12 +2020,21 @@ function addReloadToCart() {
 }
 /* ═══ RELOAD MANAGEMENT ═══ */
 const RELOAD_CARRIERS = ['Airtel','Dialog','Mobitel','Hutch'];
+function simAvail(c){const b=reloadLedger(c,today(),false);if(!b.has)return null;return b.bal-cart.filter(i=>i.type==='reload'&&i.carrier===c).reduce((a,i)=>a+i.price*i.qty,0);}
+function rsPick(c){const s=document.getElementById('rs-carrier');if(s)s.value=c;document.querySelectorAll('.rs-sim').forEach(e=>e.classList.toggle('sel',e.dataset.c===c));rsCheck();}
+function rsCheck(){const s=document.getElementById('rs-carrier'),w=document.getElementById('rs-warn'),m=document.getElementById('rs-amount');if(!s||!w||!m)return;const a=simAvail(s.value),amt=Number(m.value||0);w.textContent=(a!==null&&amt>a+0.01)?`⚠ ${s.value} has only ${fmtInt(a)} left`:'';}
+function rsQuick(c,a){rsPick(c);const m=document.getElementById('rs-amount');if(m){m.value=a;m.focus();m.select();}rsCheck();}
+function rsPhone(v){const d=String(v).replace(/\D/g,'').replace(/^94/,'0'),m={'077':'Dialog','074':'Dialog','076':'Dialog','071':'Mobitel','070':'Mobitel','075':'Airtel','078':'Hutch'}[d.slice(0,3)];if(m&&RELOAD_CARRIERS.includes(m))rsPick(m);}
+function reloadTopCombos(){const m={};(DB.reload_entries||[]).filter(x=>x.type==='sale'&&x.amount>0).forEach(x=>{const k=x.carrier+'|'+Number(x.amount);m[k]=(m[k]||0)+1;});const r=Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([k,n])=>{const [c,a]=k.split('|');return {c,a:Number(a),n};});return r.filter(x=>RELOAD_CARRIERS.includes(x.c));}
 function showReloadSaleModal() {
-  openModal('📲 Add Reload to Bill', `<div class="form-grid"><div class="credit-notice">Select the SIM/network and enter the reload amount. It will appear on the customer bill and be tracked in Reload reports.</div>${field('Network / SIM', `<select id="rs-carrier" class="ios-input">${RELOAD_CARRIERS.map(c=>`<option value="${c}">${c}</option>`).join('')}</select>`, true)}${field('Reload Amount (LKR)', '<input id="rs-amount" class="ios-input" type="number" min="1" step="1" placeholder="100" autofocus>', true)}${field('Reference / Note', '<input id="rs-note" class="ios-input" placeholder="Optional">')}</div>`, () => {
-    const carrier=document.getElementById('rs-carrier').value, amount=Number(document.getElementById('rs-amount').value||0), note=document.getElementById('rs-note').value.trim();
-    if(!RELOAD_CARRIERS.includes(carrier)||amount<=0){toast('Select network and enter valid amount','error');return false;}
-    cart.push({type:'reload',carrier,desc:`Reload - ${carrier}`,price:amount,qty:1,cost:0,warranty_months:0,reload_note:note}); renderCart(); updateTotal(); toast(`${carrier} reload added to bill`,'success');
-  }, 'Add to Bill');
+ const first=RELOAD_CARRIERS.find(c=>{const a=simAvail(c);return a!==null&&a>0;})||RELOAD_CARRIERS[0];
+ const chips=RELOAD_CARRIERS.map(c=>{const a=simAvail(c);return `<div class="rl-sim rs-sim ${c===first?'sel':''}" data-c="${c}" onclick="rsPick('${c}')"><div class="rl-sim-name">${c}</div><div class="rl-sim-bal ${a!==null&&a<=0?'danger-c':''}">${a===null?'—':fmtInt(a)}</div><div class="muted" style="font-size:10.5px">${a===null?'balance not set':'balance left'}</div></div>`;}).join('');
+ const top=reloadTopCombos(), quick=top.length?`<div class="field-label">⚡ Most used</div><div class="row" style="gap:6px;flex-wrap:wrap">${top.map(t=>`<button type="button" class="ios-pill ghost sm" onclick="rsQuick('${t.c}',${t.a})">${t.c} ${fmtInt(t.a)}</button>`).join('')}</div>`:'';
+ openModal('📲 Add Reload to Bill', `<div class="form-grid"><div class="field-label">Tap a SIM — current balance shown</div><div class="rl-sims" style="margin-bottom:0">${chips}</div><input type="hidden" id="rs-carrier" value="${first}">${quick}${field('Reload Amount (LKR)', '<input id="rs-amount" class="ios-input" type="number" min="1" step="1" placeholder="100  (Enter › phone › note › add)" oninput="rsCheck()" autofocus>', true)}<div id="rs-warn" class="warn small" style="min-height:14px"></div>${field('Phone number', '<input id="rs-phone" class="ios-input" type="tel" inputmode="tel" placeholder="07XXXXXXXX (SIM auto-selects)" oninput="rsPhone(this.value)">')}${field('Reference / Note', '<input id="rs-note" class="ios-input" placeholder="Optional">')}</div>`, () => {
+  const carrier=document.getElementById('rs-carrier').value, amount=Number(document.getElementById('rs-amount').value||0), note=document.getElementById('rs-note').value.trim(), phone=document.getElementById('rs-phone').value.trim();
+  if(!RELOAD_CARRIERS.includes(carrier)||amount<=0){toast('Enter a valid amount','error');return false;}
+  cart.push({type:'reload',carrier,desc:`Reload - ${carrier}${phone?' · '+phone:''}`,price:amount,qty:1,cost:0,warranty_months:0,reload_note:note,reload_phone:phone}); renderCart(); updateTotal(); toast(`${carrier} reload added to bill`,'success');
+ }, 'Add to Bill');
 }
 function reloadEntriesFor(dateStr){return (DB.reload_entries||[]).filter(x=>(x.created_at||'').startsWith(dateStr));}
 const RELOAD_RANGES=[['today','Today'],['7d','7D'],['30d','30D'],['all','All']];
@@ -1972,15 +2042,25 @@ const RELOAD_LABELS={sale:'Reload Sale',topup:'Add Credit',opening:'Opening',clo
 let reloadSim=null;
 let reloadHist={range:'today',carrier:'all',type:'all',open:true};
 function fmtPct(v){return (v===null||v===undefined||isNaN(v))?'—':(Math.round(v*10)/10).toFixed(1)+'%';}
-/* One SIM, one day: opening + credits − closing = balance consumed; profit = reload money collected − consumed */
+/* Running ledger per SIM: opening/closing set the balance, credit adds, reload sales subtract. Balance carries over to the next day automatically. */
+function reloadLedger(c,day,before){
+ const es=(DB.reload_entries||[]).filter(x=>x.carrier===c&&x.created_at&&(before?x.created_at.slice(0,10)<day:x.created_at.slice(0,10)<=day));
+ const k=x=>x.created_at.slice(0,10)+(x.type==='opening'?'0':'1')+(x.updated_at||x.created_at);
+ es.sort((a,b)=>k(a)<k(b)?-1:k(a)>k(b)?1:(a.id-b.id));
+ let bal=0,has=false;
+ es.forEach(x=>{const a=Number(x.amount||0);if(x.type==='opening'||x.type==='closing'){bal=a;has=true;}else if(x.type==='topup')bal+=a;else if(x.type==='sale')bal-=a;});
+ return {bal,has};
+}
+/* One SIM, one day: opening (or carried-over) + credits − closing = balance consumed; profit = reload money collected − consumed */
 function reloadSimStats(c,d){
  d=d||today();
  const es=reloadEntriesFor(d).filter(x=>x.carrier===c);
  const sum=t=>es.filter(x=>x.type===t).reduce((a,x)=>a+Number(x.amount||0),0);
  const opE=es.find(x=>x.type==='opening'),clE=es.find(x=>x.type==='closing');
- const sales=sum('sale'),top=sum('topup'),hasOp=!!opE,hasCl=!!clE,op=Number(opE?.amount||0),cl=Number(clE?.amount||0);
+ const carry=reloadLedger(c,d,true),cur=reloadLedger(c,d,false);
+ const sales=sum('sale'),top=sum('topup'),hasCl=!!clE,hasOp=!!opE||carry.has,op=opE?Number(opE.amount||0):carry.bal,cl=Number(clE?.amount||0);
  const complete=hasOp&&hasCl,used=op+top-cl,profit=complete?sales-used:null;
- return {c,sales,top,op,cl,hasOp,hasCl,active:es.length>0,complete,used,profit,pct:(complete&&sales>0)?profit/sales*100:null,balance:hasCl?cl:(hasOp?op+top-sales:null)};
+ return {c,sales,top,op,cl,hasOp,hasCl,carried:!opE&&carry.has,active:es.length>0,complete,used,profit,pct:(complete&&sales>0)?profit/sales*100:null,balance:cur.has?cur.bal:null};
 }
 function reloadDaySummary(d){
  d=d||today();
@@ -2000,14 +2080,15 @@ function upsertReloadBalance(type,carrier,amount,note=''){
 function reloadRefresh(){ if(currentView==='reload') renderReload(document.getElementById('content')); }
 function showReloadBalanceModal(type,carrier){
  const isOpen=type==='opening', label=isOpen?'Opening Balance':'Closing Balance';
- const list=carrier?[carrier]:RELOAD_CARRIERS;
- openModal(`📲 ${label}${carrier?' — '+carrier:''}`, `<div class="form-grid"><p class="muted small">${isOpen?'Morning: enter the balance on the SIM before the first reload.':'Evening: enter the balance left on the SIM. Profit is calculated automatically.'} You can edit it again the same day.</p>${list.map(c=>{const old=reloadEntriesFor(today()).find(x=>x.type===type&&x.carrier===c);return field(c,`<input id="rb-${c}" class="ios-input" type="number" min="0" step="0.01" value="${old?Number(old.amount):''}" placeholder="0.00" ${carrier?'autofocus':''}>`)}).join('')}</div>`,()=>{
+ if(isOpen&&!canSeeCost()){toast('Opening balance is set by the manager','error');return;}
+ const list=carrier?[carrier]:RELOAD_CARRIERS, d=today();
+ openModal(`📲 ${label} — ${carrier||'All SIMs'}`, `<div class="form-grid"><p class="muted small">${isOpen?'Set once — it carries over every day automatically. Leave a SIM blank to skip it.':'Enter the real balance left on each SIM. Leave a SIM blank to skip it. Profit is calculated automatically.'}</p>${list.map(c=>{const old=reloadEntriesFor(d).find(x=>x.type===type&&x.carrier===c),cur=reloadLedger(c,d,false),car=reloadLedger(c,d,true),pre=old?Number(old.amount):(isOpen&&car.has?car.bal:'');return field(c+(cur.has?` · now ${fmtInt(cur.bal)}`:''),`<input id="rb-${c}" class="ios-input" type="number" min="0" step="0.01" value="${pre}" placeholder="0.00" ${list.length===1?'autofocus':''}>`);}).join('')}</div>`,()=>{
   const vals=list.map(c=>({carrier:c,raw:document.getElementById('rb-'+c).value})).filter(v=>v.raw!=='');
   if(!vals.length){toast('Enter a balance','error');return false;}
   if(vals.some(v=>Number(v.raw)<0)){toast('Balance cannot be negative','error');return false;}
   vals.forEach(v=>upsertReloadBalance(type,v.carrier,Number(v.raw)));
   let msg=`${label} saved`;
-  if(!isOpen&&canSeeCost()){const s=reloadSimStats(vals[0].carrier);if(vals.length===1&&s.complete)msg+=` · Profit ${fmtInt(s.profit)} (${fmtPct(s.pct)})`;}
+  if(!isOpen&&canSeeCost()){const sm=reloadDaySummary();if(sm.hasClosing)msg+=` · Reload profit ${fmtInt(sm.profit)} (${fmtPct(sm.pct)})`;}
   toast(msg,'success'); reloadRefresh();
  },'Save');
 }
@@ -2020,42 +2101,50 @@ function showReloadTopupModal(carrier){
   save();toast(`${carrier} credit added; cashier cash reduced`,'success');reloadRefresh();
  },'Add Credit');
 }
-function reloadPickSim(c){ reloadSim=c; reloadRefresh(); }
+function reloadPickSim(c){ reloadSim=c; document.querySelectorAll('.rl-sims .rl-sim').forEach(e=>e.classList.toggle('sel',e.dataset.c===c)); const d=document.getElementById('rl-detail'); if(d) d.outerHTML=reloadDetailHTML(); }
+let reloadQ='';
 function reloadHistRows(){
- const t=today(); let from='';
- if(reloadHist.range==='today')from=t;
- else if(reloadHist.range==='7d'||reloadHist.range==='30d'){const d=new Date();d.setDate(d.getDate()-(reloadHist.range==='7d'?6:29));from=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
- return (DB.reload_entries||[]).filter(x=>(!from||(x.created_at||'').slice(0,10)>=from)&&(reloadHist.carrier==='all'||x.carrier===reloadHist.carrier)&&(reloadHist.type==='all'||x.type===reloadHist.type)).sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||''));
+ const t=today(), H=reloadHist, cs=canSeeCost(); let from='';
+ if(H.range==='today')from=t;
+ else if(H.range==='7d'||H.range==='30d'){const d=new Date();d.setDate(d.getDate()-(H.range==='7d'?6:29));from=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+ const q=reloadQ.trim().toLowerCase();
+ return (DB.reload_entries||[]).filter(x=>(cs||x.type!=='opening')&&(!from||(x.created_at||'').slice(0,10)>=from)&&(H.carrier==='all'||x.carrier===H.carrier)&&(H.type==='all'||x.type===H.type)&&(!q||[x.carrier,x.phone,x.note,RELOAD_LABELS[x.type],x.amount,DB.users.find(u=>u.id===x.user_id)?.name,DB.sales.find(s=>s.id===x.sale_id)?.invoice_no].join(' ').toLowerCase().includes(q))).sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||''));
 }
 function reloadSetHist(k,v){ reloadHist[k]=v; reloadRefreshHist(); }
+function reloadSearch(v){ reloadQ=v; reloadRefreshList(); }
+function reloadRowsHTML(es){
+ return es.length?es.map(x=>`<div class="rl-row"><div style="min-width:0"><div class="small strong">${esc(x.carrier||'-')} · ${esc(RELOAD_LABELS[x.type]||x.type)}${x.phone?` · 📞 ${esc(x.phone)}`:''}</div><div class="muted" style="font-size:10.5px">${esc((x.created_at||'').slice(0,16).replace('T',' '))} · ${esc(DB.users.find(u=>u.id===x.user_id)?.name||'-')}${x.sale_id?` · <a href="#" onclick="event.preventDefault();showSaleById(${x.sale_id})">${esc(DB.sales.find(s=>s.id===x.sale_id)?.invoice_no||'Bill')}</a>`:''}${x.note?' · '+esc(x.note):''}</div></div><b class="small ${x.type==='topup'?'warn':''}">${fmtInt(x.amount)}</b></div>`).join(''):'<p class="muted center small" style="padding:12px 0;margin:0">No records</p>';
+}
+function reloadRefreshList(){ const es=reloadHistRows(), el=document.getElementById('rl-list'), c=document.getElementById('rl-count'); if(el) el.innerHTML=reloadRowsHTML(es); if(c) c.textContent='('+es.length+')'; }
 function reloadRefreshHist(){ const el=document.getElementById('rl-hist'); if(el) el.outerHTML=reloadHistoryHTML(); }
 function reloadHistoryHTML(){
  const es=reloadHistRows(), H=reloadHist;
- const head=`<div class="row" style="justify-content:space-between;gap:8px"><b class="small">🕘 Reload History <span class="muted">(${es.length})</span></b><div class="row" style="gap:6px"><button class="ios-pill ghost sm" onclick="exportReloadCSV()">⬇ CSV</button><button class="ios-pill ghost sm" onclick="reloadSetHist('open',${!H.open})">${H.open?'Hide ▴':'Show ▾'}</button></div></div>`;
+ const head=`<div class="row" style="justify-content:space-between;gap:8px"><b class="small">🕘 Reload History <span class="muted" id="rl-count">(${es.length})</span></b><div class="row" style="gap:6px"><button class="ios-pill ghost sm" onclick="exportReloadCSV()">⬇ CSV</button><button class="ios-pill ghost sm" onclick="reloadSetHist('open',${!H.open})">${H.open?'Hide ▴':'Show ▾'}</button></div></div>`;
  if(!H.open) return `<div class="card rl-hist-card" id="rl-hist">${head}</div>`;
  const chips=RELOAD_RANGES.map(([v,l])=>`<button class="chart-btn ${H.range===v?'active':''}" onclick="reloadSetHist('range','${v}')">${l}</button>`).join('');
- const rows=es.length?es.map(x=>`<div class="rl-row"><div style="min-width:0"><div class="small strong">${esc(x.carrier||'-')} · ${esc(RELOAD_LABELS[x.type]||x.type)}</div><div class="muted" style="font-size:10.5px">${esc((x.created_at||'').slice(0,16).replace('T',' '))} · ${esc(DB.users.find(u=>u.id===x.user_id)?.name||'-')}${x.sale_id?` · <a href="#" onclick="event.preventDefault();showSaleById(${x.sale_id})">${esc(DB.sales.find(s=>s.id===x.sale_id)?.invoice_no||'Bill')}</a>`:(x.note?' · '+esc(x.note):'')}</div></div><b class="small ${x.type==='topup'?'warn':''}">${fmtInt(x.amount)}</b></div>`).join(''):'<p class="muted center small" style="padding:12px 0;margin:0">No records</p>';
- return `<div class="card rl-hist-card" id="rl-hist">${head}<div class="rl-filters"><div class="chart-toggle">${chips}</div><select class="ios-input" onchange="reloadSetHist('carrier',this.value)"><option value="all">All SIMs</option>${RELOAD_CARRIERS.map(c=>`<option ${H.carrier===c?'selected':''}>${c}</option>`).join('')}</select><select class="ios-input" onchange="reloadSetHist('type',this.value)"><option value="all">All types</option>${Object.entries(RELOAD_LABELS).map(([v,l])=>`<option value="${v}" ${H.type===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="rl-list">${rows}</div></div>`;
+ return `<div class="card rl-hist-card" id="rl-hist">${head}<div class="ios-search" style="max-width:none;margin:10px 0 0"><input placeholder="🔍 Search number, SIM, invoice, note..." value="${esc(reloadQ)}" oninput="reloadSearch(this.value)" autocomplete="off"><button class="clear" onclick="reloadQ='';reloadRefreshHist()">✕</button></div><div class="rl-filters"><div class="chart-toggle">${chips}</div><select class="ios-input" onchange="reloadSetHist('carrier',this.value)"><option value="all">All SIMs</option>${RELOAD_CARRIERS.map(c=>`<option ${H.carrier===c?'selected':''}>${c}</option>`).join('')}</select><select class="ios-input" onchange="reloadSetHist('type',this.value)"><option value="all">All types</option>${Object.entries(RELOAD_LABELS).filter(([v])=>canSeeCost()||v!=='opening').map(([v,l])=>`<option value="${v}" ${H.type===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="rl-list" id="rl-list">${reloadRowsHTML(es)}</div></div>`;
+}
+function reloadDetailHTML(){
+ const cs=canSeeCost(), sel=reloadSimStats(reloadSim);
+ const hint=cs?(!sel.hasOp?'Set the opening balance once — it carries over every day.':!sel.hasCl?'Add credit when you recharge. Enter the closing balance in the evening.':'All set — profit calculated.'):(!sel.hasCl?'Enter the closing balance in the evening.':'Closing balance saved.');
+ const cell=(l,v,cls='')=>`<div class="rl-cell"><div class="muted" style="font-size:10.5px">${l}</div><div class="strong ${cls}">${v}</div></div>`, pc=sel.complete?(sel.profit>=0?'success':'danger-c'):'';
+ return `<div class="card" id="rl-detail" style="margin-bottom:12px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px"><h3 style="margin:0">${sel.c}</h3><span class="muted small">${hint}</span></div><div class="rl-cells">${cs?cell('Opening'+(sel.carried?' (carried)':''),sel.hasOp?fmtInt(sel.op):'—'):''}${cell('Credit added',fmtInt(sel.top))}${cell('Reload sales',fmtInt(sel.sales))}${cs?cell('Profit',sel.complete?fmtInt(sel.profit):'—',pc)+cell('Profit %',sel.complete?fmtPct(sel.pct):'—',pc):''}${cell('Current',sel.balance===null?'—':fmtInt(sel.balance))}${cell('Closing',sel.hasCl?fmtInt(sel.cl):'—')}</div></div>`;
 }
 function renderReload(root){
  const prev=root.querySelector('.view-scroll')?.scrollTop||0, cs=canSeeCost();
  if(!reloadSim||!RELOAD_CARRIERS.includes(reloadSim)) reloadSim=RELOAD_CARRIERS[0];
- const sum=reloadDaySummary(), sel=sum.stats.find(x=>x.c===reloadSim);
- const simCard=x=>`<div class="rl-sim ${x.c===reloadSim?'sel':''}" onclick="reloadPickSim('${x.c}')"><div class="rl-sim-name">${x.c}</div><div class="rl-sim-bal">${x.balance===null?'—':fmtInt(x.balance)}</div><div class="muted" style="font-size:10.5px">${x.hasCl?'Closing balance':x.hasOp?'Balance (est.)':'Opening not set'}</div>${cs&&x.complete?`<div class="small strong ${x.profit>=0?'success':'danger-c'}" style="margin-top:3px">Profit ${fmtInt(x.profit)} · ${fmtPct(x.pct)}</div>`:''}</div>`;
- const hint=!sel.hasOp?'Step 1 — enter this SIM’s opening balance.':!sel.hasCl?'Add credit whenever you recharge the SIM. In the evening enter the closing balance.':(cs?'All set — profit calculated.':'Closing balance saved.');
- const cell=(l,v,cls='')=>`<div class="rl-cell"><div class="muted" style="font-size:10.5px">${l}</div><div class="strong ${cls}">${v}</div></div>`;
- root.innerHTML=`<div class="view-shell"><div class="page-head"><div><h1>📲 Reload</h1><p>SIM balances &amp; daily reload${cs?' profit':''}</p></div></div><div class="view-scroll">
+ const sum=reloadDaySummary();
+ const simCard=x=>`<div class="rl-sim ${x.c===reloadSim?'sel':''}" data-c="${x.c}" onclick="reloadPickSim('${x.c}')"><div class="rl-sim-name">${x.c}</div><div class="rl-sim-bal">${x.balance===null?'—':fmtInt(x.balance)}</div><div class="muted" style="font-size:10.5px">${x.balance===null?(cs?'Opening not set':'Not set yet'):'Current balance'}</div><div class="muted" style="font-size:10.5px;margin-top:3px">Sales ${fmtInt(x.sales)}</div>${cs?`<div class="small strong ${x.complete?(x.profit>=0?'success':'danger-c'):'muted'}">${x.complete?`Profit ${fmtInt(x.profit)} · ${fmtPct(x.pct)}`:'Profit pending'}</div>`:''}</div>`;
+ root.innerHTML=`<div class="view-shell"><div class="page-head"><div><h1>📲 Reload</h1><p>SIM balances &amp; daily reload${cs?' profit':''}</p></div><div class="head-actions">${cs?`<button class="ios-pill ghost sm" onclick="showReloadBalanceModal('opening')">🌅 Opening</button>`:''}<button class="ios-pill teal sm" onclick="showReloadTopupModal('${reloadSim}')">💳 Add Credit</button><button class="ios-pill orange sm" onclick="showReloadBalanceModal('closing')">🌙 Closing</button></div></div><div class="view-scroll">
  <div class="rl-sims">${sum.stats.map(simCard).join('')}</div>
- <div class="card" style="margin-bottom:12px"><div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px"><h3 style="margin:0">${sel.c}</h3><span class="muted small">${hint}</span></div>
-  <div class="rl-cells">${cell('Opening',sel.hasOp?fmtInt(sel.op):'—')}${cell('Credit added',fmtInt(sel.top))}${cell('Reload sales',fmtInt(sel.sales))}${cell('Closing',sel.hasCl?fmtInt(sel.cl):'—')}${cs?cell('Profit',sel.complete?fmtInt(sel.profit):'—',sel.complete?(sel.profit>=0?'success':'danger-c'):''):''}${cs?cell('Profit %',sel.complete?fmtPct(sel.pct):'—',sel.complete?(sel.profit>=0?'success':'danger-c'):''):''}</div>
-  <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap"><button class="ios-pill ghost sm" onclick="showReloadBalanceModal('opening','${sel.c}')">🌅 Opening</button><button class="ios-pill teal sm" onclick="showReloadTopupModal('${sel.c}')">💳 Add Credit</button><button class="ios-pill orange sm" onclick="showReloadBalanceModal('closing','${sel.c}')">🌙 Closing</button></div></div>
- <div class="stat-grid" style="margin-bottom:12px"><div class="stat"><div class="stat-label">Reload Sales Today</div><div class="stat-value">${fmtInt(sum.sales)}</div></div><div class="stat"><div class="stat-label">Credit Added Today</div><div class="stat-value warn">${fmtInt(sum.topups)}</div></div>${cs?`<div class="stat"><div class="stat-label">Total Profit</div><div class="stat-value success">${sum.hasClosing?fmtInt(sum.profit):'—'}</div><div class="stat-sub">${sum.hasClosing?fmtPct(sum.pct)+' of reload sales':'enter opening &amp; closing for every SIM used'}</div></div>`:''}</div>
+ ${reloadDetailHTML()}
+ <div class="stat-grid" style="margin-bottom:12px"><div class="stat"><div class="stat-label">Reload Sales Today</div><div class="stat-value">${fmtInt(sum.sales)}</div></div><div class="stat"><div class="stat-label">Credit Added Today</div><div class="stat-value warn">${fmtInt(sum.topups)}</div></div>${cs?`<div class="stat"><div class="stat-label">Total Profit</div><div class="stat-value success">${sum.hasClosing?fmtInt(sum.profit):'—'}</div><div class="stat-sub">${sum.hasClosing?fmtPct(sum.pct)+' of reload sales':'enter closing for every SIM used today'}</div></div>`:''}</div>
  ${reloadHistoryHTML()}
  </div></div>`;
  if(prev){const sv=root.querySelector('.view-scroll');if(sv)sv.scrollTop=prev;}
 }
 function showSaleById(id){const s=DB.sales.find(x=>x.id===id);if(s)showSaleCompleteModal(id);else toast('Bill not found','error');}
-function exportReloadCSV(){const rows=[['DateTime','Carrier','Type','Amount','Note','SaleID','User'],...(DB.reload_entries||[]).map(x=>[x.created_at,x.carrier,x.type,x.amount,x.note||'',x.sale_id||'',DB.users.find(u=>u.id===x.user_id)?.name||''])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));a.download=`reload_history_${today()}.csv`;a.click();}
+function exportReloadCSV(){const rows=[['DateTime','Carrier','Type','Amount','Phone','Note','SaleID','User'],...(DB.reload_entries||[]).filter(x=>canSeeCost()||x.type!=='opening').map(x=>[x.created_at,x.carrier,x.type,x.amount,x.phone||'',x.note||'',x.sale_id||'',DB.users.find(u=>u.id===x.user_id)?.name||''])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));a.download=`reload_history_${today()}.csv`;a.click();}
 
 function renderCreditExtraFields(show) {
   const wrap = document.getElementById('credit-extra-fields'); if (!wrap) return;
@@ -2129,8 +2218,8 @@ function renderCart() {
   else el.innerHTML = cart.map((it,i) => {
     const isReload = it.type === 'reload', isManual = it.type === 'manual';
     const qc = it.type==='accessory' ? `<div class="qty-ctrl"><button onclick="cartQty(${i},-1)">−</button><span>${it.qty}</span><button onclick="cartQty(${i},1)">+</button></div>` : '';
-    const rc = (isReload || isManual) ? 'item-row reload-item' : 'item-row';
-    const icon = isManual ? '📦 ' : (isReload ? '💳 ' : '');
+    const rc = (isReload || isManual || it.type==='repair') ? 'item-row reload-item' : 'item-row';
+    const icon = isManual ? '📦 ' : (isReload ? '💳 ' : (it.type==='repair' ? '🔧 ' : ''));
     return `<div class="${rc}"><div class="item-info" style="flex:1"><div class="row gap" style="margin-bottom:3px;flex-wrap:wrap">${codeChip(it.code, it.type==='accessory', isReload, it.barcode)}<span class="strong" style="font-size:12px">${icon}${esc(it.desc).slice(0,60)}</span>${warrantyChip(it.warranty_months)}</div><div class="muted small">${fmtInt(it.price)}${it.type==='accessory'?' × '+it.qty:''}</div></div>${qc}<button class="ios-pill red sm" onclick="removeFromCart(${i})">✕</button></div>`;
   }).join('');
   updateTotal();
@@ -2207,14 +2296,25 @@ function finalizeSale({ disc, paidFinal, total, change, balance, method, custInf
   const st = cart.reduce((a,i)=>a+i.price*i.qty,0);
   const sale = { id:nextId('sales'), invoice_no:inv, customer_id:cust_id, subtotal:st, discount:disc, total, cost_total, payment_method:method, paid_amount:paidFinal, change, balance, created_at:now(), user_id:currentUser?.id||null };
   DB.sales.push(sale);
+  const repDelivered = [], repPending = [];
   cart.forEach(it => {
-    DB.sale_items.push({ id:nextId('sale_items'), sale_id:sale.id, item_type: it.type || 'phone', item_code: it.code || '', barcode: it.barcode || '', warranty_months: it.warranty_months || 0, stock_unit_id: it.type==='phone' ? it.unit_id : null, accessory_id: it.type==='accessory' ? it.accessory_id : null, product_id: it.type==='phone' ? it.product_id : null, description:it.desc, price:it.price, qty:it.qty, cost:it.cost });
+    DB.sale_items.push({ repair_id: it.type==='repair' ? it.repair_id : null, id:nextId('sale_items'), sale_id:sale.id, item_type: it.type || 'phone', item_code: it.code || '', barcode: it.barcode || '', warranty_months: it.warranty_months || 0, stock_unit_id: it.type==='phone' ? it.unit_id : null, accessory_id: it.type==='accessory' ? it.accessory_id : null, product_id: it.type==='phone' ? it.product_id : null, description:it.desc, price:it.price, qty:it.qty, cost:it.cost });
     if (it.type === 'phone') { const u = DB.stock_units.find(x=>x.id===it.unit_id); if (u){ u.status = 'sold'; u.sold_at = now(); } }
     else if (it.type === 'accessory') { const a = DB.accessories.find(x=>x.id===it.accessory_id); if (a){ a.qty = Math.max(0, (a.qty||0) - it.qty); } }
-    if (it.type === 'reload') DB.reload_entries.push({id:nextId('reload_entries'),type:'sale',carrier:it.carrier||'Other',amount:Number(it.price||0)*Number(it.qty||1),note:it.reload_note||'',sale_id:sale.id,created_at:now(),user_id:currentUser?.id||null});
+    if (it.type === 'repair') {
+      const rr = DB.repairs.find(x=>x.id===it.repair_id);
+      if (rr && rr.status !== 'delivered') {
+        const h = it.handover || {};
+        if (balance <= 0.009) { applyRepairDelivery(rr, h, sale.id, inv); repDelivered.push(rr.job_no); }
+        else { rr.pending_handover = { add:h.add, final:h.final, note:h.note, sale_id:sale.id }; repPending.push(rr.job_no); }
+      }
+    }
+    if (it.type === 'reload') DB.reload_entries.push({id:nextId('reload_entries'),type:'sale',carrier:it.carrier||'Other',amount:Number(it.price||0)*Number(it.qty||1),note:it.reload_note||'',phone:it.reload_phone||'',sale_id:sale.id,created_at:now(),user_id:currentUser?.id||null});
   });
   if (cust_id && balance > 0) addCredit(cust_id, balance);
   save();
+  if (repDelivered.length) toast('🔧 Repair delivered: ' + repDelivered.join(', '), 'success', 4000);
+  if (repPending.length) toast('⚠️ Bill not fully paid — ' + repPending.join(', ') + ' not marked delivered yet', 'warn', 6000);
   const saleIdToShow = sale.id;
   clearCart();
   setTimeout(() => showSaleCompleteModal(saleIdToShow), 30);
@@ -2473,18 +2573,108 @@ let repairsQuery = '', repairsFilter = 'all';
 function renderRepairs(root) { root.innerHTML = `<div class="view-shell"><div class="page-head"><h1>Repairs</h1><button class="ios-pill blue" onclick="showNewRepair()">+ New Job</button></div><div class="search-row">${searchBar('rep-search','🔍 Search job, customer, device...','repairsSearch(this.value)')}<div class="segmented" id="rep-seg"><button class="${repairsFilter==='all'?'active':''}" onclick="repairsSetFilter('all',this)">All</button><button class="${repairsFilter==='received'?'active':''}" onclick="repairsSetFilter('received',this)">Received</button><button class="${repairsFilter==='repairing'?'active':''}" onclick="repairsSetFilter('repairing',this)">Repairing</button><button class="${repairsFilter==='done'?'active':''}" onclick="repairsSetFilter('done',this)">Done</button><button class="${repairsFilter==='delivered'?'active':''}" onclick="repairsSetFilter('delivered',this)">Delivered</button></div></div><div class="view-scroll" id="rep-list"></div></div>`; if (repairsQuery) document.getElementById('rep-search').value = repairsQuery; filterRepairs(); }
 function repairsSearch(v){ repairsQuery = v; filterRepairs(); }
 function repairsSetFilter(f, btn) { repairsFilter = f; document.querySelectorAll('#rep-seg button').forEach(b => b.classList.remove('active')); if (btn) btn.classList.add('active'); filterRepairs(); }
+const isAdminUser = () => currentUser && currentUser.role === 'admin';
+function repairPrice(r){ return Number(r.final_cost) || Number(r.estimated_cost) || 0; }
+function payRepair(r, amt, kind, note=''){
+  amt = Number(amt)||0; if (amt <= 0) return;
+  DB.repair_payments.push({ id:nextId('repair_payments'), repair_id:r.id, amount:amt, kind, note, user_id:currentUser?.id||null, created_at:now() });
+  r.advance_paid = (Number(r.advance_paid)||0) + amt;
+}
 function filterRepairs() {
-  const q = repairsQuery.trim().toLowerCase();
+  const q = repairsQuery.trim().toLowerCase(), cv = canSeeCost(), td = today();
   let rows = DB.repairs.filter(r => repairsFilter==='all' || r.status===repairsFilter);
   if (q) rows = rows.filter(r => { const c = DB.customers.find(x=>x.id===r.customer_id); return (r.job_no||'').toLowerCase().includes(q) || (r.device_brand||'').toLowerCase().includes(q) || (r.device_model||'').toLowerCase().includes(q) || (r.imei||'').toLowerCase().includes(q) || (c?.name||'').toLowerCase().includes(q) || (c?.phone||'').toLowerCase().includes(q); });
   rows.sort((a,b)=>b.id-a.id);
   const el = document.getElementById('rep-list'); if (!el) return;
-  if (!rows.length){ el.innerHTML = '<div class="card center pad muted">No matching jobs</div>'; return; }
-  el.innerHTML = `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Job</th><th>Customer</th><th>Device</th><th>Issue</th><th>Status</th><th>Estimate</th><th>Final</th><th>Actions</th></tr></thead><tbody>${rows.map(r => { const c = DB.customers.find(x=>x.id===r.customer_id); return `<tr><td class="muted small">${esc(r.job_no)}</td><td><div class="strong">${esc(c?.name||'-')}</div><div class="muted small">${esc(c?.phone||'')}</div></td><td><div class="strong">${esc(r.device_brand)} ${esc(r.device_model)}</div><div class="muted small">${esc(r.imei||'-')}</div></td><td class="muted small">${esc((r.issue||'').slice(0,40))}</td><td><span class="badge badge-${r.status}">${r.status.replace(/_/g,' ')}</span></td><td>${fmtInt(r.estimated_cost)}</td><td>${r.final_cost ? fmtInt(r.final_cost) : '-'}</td><td style="display:flex;gap:4px;flex-wrap:wrap"><button class="ios-pill sm" onclick="showStatusUpdate(${r.id})">Status</button><button class="ios-pill wa sm" onclick="promptRepairWhatsApp(${r.id})">💬</button><button class="ios-pill sm" onclick="printRepairReceipt(${r.id})">Slip</button>${r.status!=='delivered' ? `<button class="ios-pill green sm" onclick="deliverRepair(${r.id})">Deliver</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+  const act = DB.repairs.filter(r=>r.status!=='delivered').length, ready = DB.repairs.filter(r=>r.status==='done').length;
+  const dToday = DB.repairs.filter(r=>r.status==='delivered'&&(r.delivered_at||'').startsWith(td)).length;
+  const pf = DB.repairs.filter(r=>r.status==='delivered'&&(r.delivered_at||'').startsWith(td.slice(0,7))).reduce((a,r)=>a+(Number(r.final_cost)||0)-(Number(r.cost)||0),0);
+  const stats = `<div class="stat-grid" style="margin-bottom:12px"><div class="stat"><div class="stat-label">Active</div><div class="stat-value warn">${act}</div></div><div class="stat"><div class="stat-label">Ready for pickup</div><div class="stat-value success">${ready}</div></div><div class="stat"><div class="stat-label">Delivered today</div><div class="stat-value">${dToday}</div></div>${cv?`<div class="stat"><div class="stat-label">Repair profit (month)</div><div class="stat-value success">${fmtInt(pf)}</div></div>`:''}</div>`;
+  if (!rows.length){ el.innerHTML = stats + '<div class="card center pad muted">No matching jobs</div>'; return; }
+  el.innerHTML = stats + `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Job</th><th>Customer</th><th>Device</th><th>Status</th><th>Price</th><th>Paid</th><th>Balance</th>${cv?'<th>Profit</th>':''}<th>Actions</th></tr></thead><tbody>${rows.map(r => {
+    const c = DB.customers.find(x=>x.id===r.customer_id), price = repairPrice(r), paid = Number(r.advance_paid)||0, bal = Math.max(0, price - paid), del = r.status==='delivered';
+    return `<tr><td class="muted small">${esc(r.job_no)}<div>${esc((r.received_at||'').slice(0,10))}</div></td><td><div class="strong">${esc(c?.name||'-')}</div><div class="muted small">${esc(c?.phone||'')}</div></td><td><div class="strong">${esc(r.device_brand)} ${esc(r.device_model)}</div><div class="muted small">${esc(r.imei||'-')}</div><div class="muted small">${esc((r.issue||'').slice(0,40))}</div></td><td><span class="badge badge-${r.status}">${r.status.replace(/_/g,' ')}</span></td><td class="strong">${fmtInt(price)}${del?'':'<div class="muted small">estimate</div>'}</td><td class="success">${fmtInt(paid)}</td><td class="${bal>0?'warn':''}">${fmtInt(bal)}</td>${cv?`<td class="success">${del?fmtInt(price-(Number(r.cost)||0)):'—'}</td>`:''}<td style="display:flex;gap:4px;flex-wrap:wrap">${!del?`<button class="ios-pill sm" onclick="showStatusUpdate(${r.id})">⚙️ Update</button><button class="ios-pill green sm" onclick="deliverRepair(${r.id})">📦 Handover</button>`:(isAdminUser()?`<button class="ios-pill ghost sm" onclick="showStatusUpdate(${r.id})">Status</button>`:'')}<button class="ios-pill wa sm" onclick="promptRepairWhatsApp(${r.id})">💬</button><button class="ios-pill sm" onclick="printRepairReceipt(${r.id})">🖨️</button></td></tr>`; }).join('')}</tbody></table></div>`;
 }
-function showNewRepair() { openModal('New Repair Job', `<div class="form-grid">${field('Customer', '<input id="nr-cname" class="ios-input" placeholder="Kamal Perera" autofocus>', true)}${field('Phone', '<input id="nr-cphone" class="ios-input" placeholder="0771234567">')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Brand', '<input id="nr-brand" class="ios-input" placeholder="Samsung">')}${field('Model', '<input id="nr-model" class="ios-input" placeholder="A065">', true)}</div>${field('IMEI', '<input id="nr-imei" class="ios-input">')}${field('Issue', '<input id="nr-issue" class="ios-input" placeholder="Screen broken">', true)}${field('Diagnosis', '<input id="nr-diag" class="ios-input">')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Estimate', '<input id="nr-est" class="ios-input" type="number" step="0.01">')}${field('Advance', '<input id="nr-adv" class="ios-input" type="number" step="0.01">')}</div>${field('Technician', '<input id="nr-tech" class="ios-input">')}</div>`, () => { const cname = document.getElementById('nr-cname').value.trim(); const model = document.getElementById('nr-model').value.trim(); const issue = document.getElementById('nr-issue').value.trim(); if (!cname || !model || !issue){ toast('Required fields missing','error'); return false; } const c = { id:nextId('customers'), name:cname, phone:document.getElementById('nr-cphone').value.trim(), id_number:'', email:'', address:'', balance:0, created_at:now() }; DB.customers.push(c); const job = 'JOB-' + today().replace(/-/g,'') + '-' + String(DB.ids.repairs).padStart(4,'0'); DB.repairs.push({ id:nextId('repairs'), job_no:job, customer_id:c.id, device_brand:document.getElementById('nr-brand').value.trim(), device_model:model, imei:document.getElementById('nr-imei').value.trim(), issue, diagnosis:document.getElementById('nr-diag').value.trim(), status:'received', estimated_cost:Number(document.getElementById('nr-est').value||0), final_cost:0, advance_paid:Number(document.getElementById('nr-adv').value||0), technician:document.getElementById('nr-tech').value.trim(), received_at:now(), promised_at:null, completed_at:null, delivered_at:null, notes:'', created_by:currentUser?.id||null }); save(); toast(`Job ${job} created`,'success'); filterRepairs(); }); }
-function showStatusUpdate(id) { const r = DB.repairs.find(x=>x.id===id); if (!r) return; openModal(`Update ${r.job_no}`, `<div class="form-grid">${field('Status', `<select id="us-status" class="ios-input">${STATUS_LIST.map(s=>`<option value="${s}" ${s===r.status?'selected':''}>${s.replace(/_/g,' ')}</option>`).join('')}</select>`, true)}${field('Diagnosis', `<input id="us-diag" class="ios-input" value="${esc(r.diagnosis||'')}">`)}${field('Notes', `<input id="us-notes" class="ios-input" value="${esc(r.notes||'')}">`)}</div>`, () => { const oldS = r.status; r.status = document.getElementById('us-status').value; r.diagnosis = document.getElementById('us-diag').value.trim(); r.notes = document.getElementById('us-notes').value.trim(); if (r.status==='done' && !r.completed_at) r.completed_at = now(); save(); toast('Updated','success'); filterRepairs(); if (r.status !== oldS) setTimeout(() => { if (confirm(`Notify customer?`)) promptRepairWhatsApp(r.id); }, 300); }); }
-function deliverRepair(id) { const r = DB.repairs.find(x=>x.id===id); if (!r) return; openModal(`Deliver ${r.job_no}`, `<div class="form-grid">${field('Final cost', `<input id="dr-final" class="ios-input" type="number" step="0.01" value="${r.estimated_cost}" autofocus>`, true)}${field('Additional payment', '<input id="dr-paid" class="ios-input" type="number" step="0.01" value="0">')}</div>`, () => { r.final_cost = Number(document.getElementById('dr-final').value||0); r.advance_paid = (r.advance_paid||0) + Number(document.getElementById('dr-paid').value||0); r.status = 'delivered'; r.completed_at = r.completed_at || now(); r.delivered_at = now(); save(); toast('Delivered','success'); printRepairReceipt(r.id); filterRepairs(); setTimeout(() => { if (confirm('Send WhatsApp?')) promptRepairWhatsApp(r.id); }, 500); }); }
+/* Process 1 — receive the job (advance goes straight into the cashier balance) */
+function showNewRepair() {
+  openModal('🔧 New Repair Job', `<div class="form-grid">${field('Customer', '<input id="nr-cname" class="ios-input" placeholder="Kamal Perera" autofocus>', true)}${field('Phone', '<input id="nr-cphone" class="ios-input" type="tel" placeholder="0771234567">')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Brand', '<input id="nr-brand" class="ios-input" placeholder="Samsung">')}${field('Model', '<input id="nr-model" class="ios-input" placeholder="A065">', true)}</div>${field('IMEI', '<input id="nr-imei" class="ios-input">')}${field('Issue / Repair', '<input id="nr-issue" class="ios-input" placeholder="Screen broken">', true)}${field('Technician', '<input id="nr-tech" class="ios-input">')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Estimated price', '<input id="nr-est" class="ios-input" type="number" step="0.01">')}${field('Advance (to cashier)', '<input id="nr-adv" class="ios-input" type="number" step="0.01">')}</div></div>`, () => {
+    const cname = document.getElementById('nr-cname').value.trim(), model = document.getElementById('nr-model').value.trim(), issue = document.getElementById('nr-issue').value.trim(), phone = document.getElementById('nr-cphone').value.trim();
+    const est = Number(document.getElementById('nr-est').value||0), adv = Number(document.getElementById('nr-adv').value||0);
+    if (!cname || !model || !issue){ toast('Customer, model and issue are required','error'); return false; }
+    if (adv < 0 || est < 0){ toast('Amounts cannot be negative','error'); return false; }
+    if (est > 0 && adv > est){ toast('Advance is more than the estimate','error'); return false; }
+    let c = phone && DB.customers.find(x=>x.phone===phone);
+    if (!c) { c = { id:nextId('customers'), name:cname, phone, id_number:'', email:'', address:'', balance:0, created_at:now() }; DB.customers.push(c); }
+    const job = 'JOB-' + today().replace(/-/g,'') + '-' + String(DB.ids.repairs).padStart(4,'0');
+    const r = { id:nextId('repairs'), job_no:job, customer_id:c.id, device_brand:document.getElementById('nr-brand').value.trim(), device_model:model, imei:document.getElementById('nr-imei').value.trim(), issue, diagnosis:'', status:'received', estimated_cost:est, final_cost:0, advance_paid:0, cost:0, cost_log:[], additional_charge:0, history:[], technician:document.getElementById('nr-tech').value.trim(), received_at:now(), promised_at:null, completed_at:null, delivered_at:null, notes:'', created_by:currentUser?.id||null };
+    DB.repairs.push(r); if (adv > 0) payRepair(r, adv, 'advance');
+    save(); toast(`Job ${job} created${adv>0?' · advance added to cashier':''}`,'success'); filterRepairs(); printRepairReceipt(r.id);
+  });
+}
+function showRepairDetails(id){
+  const r=DB.repairs.find(x=>x.id===id); if(!r) return;
+  const c=DB.customers.find(x=>x.id===r.customer_id), cv=canSeeCost(), pays=(DB.repair_payments||[]).filter(p=>p.repair_id===id), sale=DB.sales.find(x=>x.id===r.sale_id);
+  const price=repairPrice(r), paid=Number(r.advance_paid)||0, row=(a,b,cls='')=>`<div class="row" style="justify-content:space-between;padding:4px 0"><span class="muted">${a}</span><b class="${cls}">${b}</b></div>`;
+  openModal(`🔧 ${r.job_no}`, `<div style="max-height:65vh;overflow:auto"><div class="card" style="background:var(--glass-hover);padding:10px;margin-bottom:10px">${row('Customer',esc(c?.name||'-'))}${row('Phone',esc(c?.phone||'-'))}${row('Device',esc(((r.device_brand||'')+' '+(r.device_model||'')).trim()))}${row('IMEI',esc(r.imei||'-'))}${row('Issue',esc(r.issue||'-'))}${r.diagnosis?row('Diagnosis',esc(r.diagnosis)):''}${row('Technician',esc(r.technician||'-'))}${row('Status',`<span class="badge badge-${r.status}">${r.status.replace(/_/g,' ')}</span>`)}${row('Received',esc((r.received_at||'').slice(0,16)))}${r.delivered_at?row('Delivered',esc(r.delivered_at.slice(0,16))):''}${sale?row('Invoice',`<a href="#" onclick="event.preventDefault();closeModal();openBillFromSearch(${sale.id})">${esc(sale.invoice_no)}</a>`):''}</div><div class="card" style="background:var(--glass-hover);padding:10px;margin-bottom:10px">${row('Estimated price',fmtInt(r.estimated_cost||0))}${cv&&r.additional_charge?row('Additional charge',fmtInt(r.additional_charge)):''}${row(r.status==='delivered'?'Final price':'Price now',fmtInt(price),'strong')}${row('Paid (advance etc.)',fmtInt(paid),'success')}${row('Balance',fmtInt(Math.max(0,price-paid)),'warn')}${cv?row('Repair cost',fmtInt(r.cost||0),'warn')+row('Profit',r.status==='delivered'?fmtInt(price-(Number(r.cost)||0)):'on delivery','success'):''}</div>${pays.length?`<div class="field-label">Payments to cashier</div><div class="card" style="padding:8px;margin-bottom:10px">${pays.map(p=>`<div class="row" style="justify-content:space-between;padding:3px 0"><span class="small">${esc((p.created_at||'').slice(0,16))} · ${esc(p.kind||'')}</span><b class="success">${fmtInt(p.amount)}</b></div>`).join('')}</div>`:''}${cv&&(r.cost_log||[]).length?`<div class="field-label">Cost entries</div><div class="card" style="padding:8px;margin-bottom:10px">${r.cost_log.map(x=>`<div class="row" style="justify-content:space-between;padding:3px 0"><span class="small">${esc((x.at||'').slice(0,16))} ${esc(x.note||'')}</span><b class="warn">${fmtInt(x.amount)}</b></div>`).join('')}</div>`:''}${(r.history||[]).length?`<div class="field-label">Status history</div><div class="card" style="padding:8px;margin-bottom:10px">${r.history.map(h=>`<div class="small" style="padding:3px 0">${esc((h.at||'').slice(0,16))} · ${esc(h.from)} → <b>${esc(h.to)}</b> · ${esc(h.by||'')}${h.note?' · '+esc(h.note):''}</div>`).join('')}</div>`:''}${(r.notes||r.handover_note)?`<div class="small muted">Notes: ${esc([r.notes,r.handover_note].filter(Boolean).join(' · '))}</div>`:''}</div><div class="row gap" style="margin-top:10px"><button class="ios-pill" onclick="printRepairReceipt(${r.id})">🖨️ Print</button><button class="ios-pill wa" onclick="promptRepairWhatsApp(${r.id})">💬 WhatsApp</button></div>`,()=>{},'Close');
+}
+/* Process 2 — status, repair cost, extra payments (admin only after delivery, with a note) */
+function showStatusUpdate(id) {
+  const r = DB.repairs.find(x=>x.id===id); if (!r) return;
+  const adm = isAdminUser(), cv = canSeeCost(), del = r.status === 'delivered';
+  if (del && !adm) { toast('Only admin can change a delivered job','error'); return; }
+  const list = del ? STATUS_LIST : STATUS_LIST.filter(s => s !== 'delivered');
+  const paid = Number(r.advance_paid)||0, est = Number(r.estimated_cost)||0;
+  openModal(`⚙️ ${del?'Admin change':'Update'} — ${r.job_no}`, `<div class="form-grid"><div class="card" style="background:var(--glass-hover);padding:10px"><div class="row" style="justify-content:space-between"><span>Paid so far</span><b class="success">${fmtInt(paid)}</b></div>${cv?`<div class="row" style="justify-content:space-between;margin-top:6px"><span>Cost so far</span><b class="warn">${fmtInt(r.cost||0)}</b></div>`:''}</div>${field('Status', `<select id="us-status" class="ios-input">${list.map(s=>`<option value="${s}" ${s===r.status?'selected':''}>${s.replace(/_/g,' ')}</option>`).join('')}</select>`, true)}${field('Diagnosis', `<input id="us-diag" class="ios-input" value="${esc(r.diagnosis||'')}">`)}${field('Estimated price', `<input id="us-est" class="ios-input" type="number" step="0.01" value="${est}">`)}${del?'':`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Add repair cost', '<input id="us-cost" class="ios-input" type="number" min="0" step="0.01" placeholder="Parts / outsourced">')}${field('Receive payment', '<input id="us-pay" class="ios-input" type="number" min="0" step="0.01" placeholder="Goes to cashier">')}</div>${field('Cost note', '<input id="us-cnote" class="ios-input" placeholder="e.g. LCD from supplier">')}`}${field(del?'Note (required)':'Note', `<input id="us-notes" class="ios-input" value="${del?'':esc(r.notes||'')}" placeholder="${del?'Why is this being changed?':''}">`, del)}</div>`, () => {
+    const oldS = r.status, ns = document.getElementById('us-status').value, note = document.getElementById('us-notes').value.trim();
+    if (del && !note) { toast('A note is required to change a delivered job','error'); return false; }
+    const ac = del ? 0 : Number(document.getElementById('us-cost').value||0), pay = del ? 0 : Number(document.getElementById('us-pay').value||0), ne = Number(document.getElementById('us-est').value||0);
+    if (ac < 0 || pay < 0 || ne < 0) { toast('Amounts cannot be negative','error'); return false; }
+    r.diagnosis = document.getElementById('us-diag').value.trim(); r.estimated_cost = ne;
+    if (ac > 0) { r.cost = (Number(r.cost)||0) + ac; (r.cost_log = r.cost_log||[]).push({ amount:ac, note:document.getElementById('us-cnote').value.trim(), at:now(), by:currentUser?.name||'' }); }
+    if (pay > 0) payRepair(r, pay, 'partial', note);
+    if (note) r.notes = note;
+    r.status = ns; if (ns === 'done' && !r.completed_at) r.completed_at = now();
+    if (ns !== oldS) {
+      (r.history = r.history||[]).push({ at:now(), by:currentUser?.name||'', from:oldS, to:ns, note });
+      if (del) { r.delivered_at = null; r.reopened_at = now(); auditAction('repair_status_change','repair',r.id,`${oldS} → ${ns}: ${note}`); }
+    } else if (del) auditAction('repair_note','repair',r.id,note);
+    save(); toast('Updated','success'); filterRepairs();
+    if (ns !== oldS && !del) setTimeout(() => { if (confirm('Notify customer on WhatsApp?')) promptRepairWhatsApp(r.id); }, 300);
+  });
+}
+/* Process 3 — handover: estimate, advance, additional charge, note, balance */
+function drCalc(id, fromAdd) {
+  const r = DB.repairs.find(x=>x.id===id); if (!r) return;
+  const est = Number(r.estimated_cost)||0, paid = Number(r.advance_paid)||0, add = Number(document.getElementById('dr-add').value||0), fin = est + add, bal = Math.max(0, fin - paid);
+  document.getElementById('dr-final').textContent = fmtInt(fin); document.getElementById('dr-bal').textContent = fmtInt(bal);
+  const pf = document.getElementById('dr-profit'); if (pf) pf.textContent = fmtInt(fin - (Number(r.cost)||0));
+  if (fromAdd) document.getElementById('dr-pay').value = bal;
+}
+function applyRepairDelivery(r, h, saleId, inv) {
+  r.additional_charge = Number(h.add)||0; r.final_cost = Number(h.final)||r.final_cost; r.handover_note = h.note||'';
+  (r.history = r.history||[]).push({ at:now(), by:currentUser?.name||'', from:r.status, to:'delivered', note:h.note||('Billed '+(inv||'')) });
+  r.status = 'delivered'; r.completed_at = r.completed_at || now(); r.delivered_at = now(); r.sale_id = saleId; delete r.pending_handover;
+}
+function deliverRepair(id) {
+  const r = DB.repairs.find(x=>x.id===id); if (!r) return;
+  if (r.pending_handover) {
+    const sl = DB.sales.find(x=>x.id===r.pending_handover.sale_id);
+    if (confirm(`This job was already billed${sl?' on '+sl.invoice_no:''} but the bill was not fully paid.\nMark it as delivered now?`)) { applyRepairDelivery(r, r.pending_handover, r.pending_handover.sale_id, sl?.invoice_no); save(); toast('Delivered','success'); filterRepairs(); }
+    return;
+  }
+  if ([...cart, ...pendingCartItems].some(i=>i.type==='repair' && i.repair_id===r.id)) { toast('This job is already in the bill','warn'); navigateTo('sales'); return; }
+  const cv = canSeeCost(), est = Number(r.estimated_cost)||0, paid = Number(r.advance_paid)||0, add0 = Number(r.additional_charge)||0, bal0 = Math.max(0, est + add0 - paid);
+  const line = (l, v, cls='') => `<div class="row" style="justify-content:space-between;padding:4px 0"><span>${l}</span><b class="${cls}">${v}</b></div>`;
+  openModal(`📦 Handover — ${r.job_no}`, `<div class="form-grid"><div class="card" style="background:var(--glass-hover);padding:10px">${line('Estimated price', fmtInt(est))}${line('Advance / paid so far', fmtInt(paid), 'success')}</div>${field('Additional charge', `<input id="dr-add" class="ios-input" type="number" min="0" step="0.01" value="${add0}" oninput="drCalc(${r.id},false)" autofocus>`)}${field('Note', `<input id="dr-note" class="ios-input" value="${esc(r.handover_note||'')}" placeholder="Optional">`)}<div class="card" style="background:var(--glass-hover);padding:10px">${line('Final price', `<span id="dr-final">${fmtInt(est+add0)}</span>`)}${line('Balance to pay on the bill', `<span id="dr-bal">${fmtInt(bal0)}</span>`, 'warn')}${cv?line('Profit (admin/manager only)', `<span id="dr-profit">${fmtInt(est+add0-(Number(r.cost)||0))}</span>`, 'success'):''}</div><p class="muted small" style="margin:0">The job goes to the Sales page as a bill line — add any other items, take payment, and the job is marked Delivered when the bill is paid.</p></div>`, () => {
+    const add = Number(document.getElementById('dr-add').value||0);
+    if (add < 0) { toast('Amount cannot be negative','error'); return false; }
+    const fin = est + add, bal = Math.max(0, fin - paid), note = document.getElementById('dr-note').value.trim(), c = DB.customers.find(x=>x.id===r.customer_id);
+    const model = ((r.device_brand||'') + ' ' + (r.device_model||'')).trim();
+    pendingCartItems.push({ type:'repair', repair_id:r.id, code:r.job_no, desc:`Repair — ${model}${r.imei?' · IMEI '+r.imei:''}${paid>0?` (Total ${fmtInt(fin)} − advance ${fmtInt(paid)})`:''}`, price:bal, qty:1, cost:bal, warranty_months:0, handover:{ add, final:fin, note } });
+    navigateTo('sales');
+    setTimeout(() => { renderCart(); const n=document.getElementById('cust-name'), p=document.getElementById('cust-phone'); if (c && n && !n.value) n.value = c.name||''; if (c && p && !p.value) p.value = c.phone||''; toast('Repair added to bill','success'); }, 60);
+  }, 'Add to Bill');
+}
 
 /* ═══ SHOP REPAIR ═══ */
 let shopsQuery = '';
@@ -2839,7 +3029,7 @@ function showSupplierDetail(id) {
 }
 
 /* ═══ REPORTS ═══ */
-let reportQuery = '', reportTab = 'sales';
+let reportQuery = '', reportTab = 'overview', repRange = '1m', repFrom = today().slice(0,8)+'01', repTo = today(), repCashType = 'all';
 /* ═══ STAFF, SIMPLE SALARY & EXPENSE MANAGEMENT ═══ */
 let staffQuery = '', expenseQuery = '';
 function moneyInput(id, placeholder='0.00') { return `<input id="${id}" class="ios-input" type="number" min="0" step="0.01" placeholder="${placeholder}">`; }
@@ -2847,46 +3037,116 @@ function renderStaff(root) {
   const active = DB.staff.filter(s=>s.active!==false).length;
   const month = today().slice(0,7);
   const payroll = DB.salary_payments.filter(p=>(p.paid_at||'').startsWith(month)).reduce((a,p)=>a+(Number(p.amount)||0),0);
-  root.innerHTML = `<div class="view-shell"><div class="page-head"><h1>🧑‍💼 Staff & Salary</h1><div class="head-actions"><button class="ios-pill blue" onclick="showAddStaff()">+ Add Staff</button></div></div><div class="stats-grid" style="margin-bottom:14px"><div class="stat-card"><div class="stat-label">Active Staff</div><div class="stat-value">${active}</div></div><div class="stat-card"><div class="stat-label">Monthly Salary Budget</div><div class="stat-value">${fmtInt(DB.staff.filter(s=>s.active!==false).reduce((a,s)=>a+(Number(s.salary)||0),0))}</div></div><div class="stat-card"><div class="stat-label">Paid This Month</div><div class="stat-value">${fmtInt(payroll)}</div></div></div><div class="search-row">${searchBar('staff-search','🔍 Search staff name / phone...','staffSearch(this.value)')}</div><div class="view-scroll" id="staff-body"></div></div>`;
+  root.innerHTML = `<div class="view-shell"><div class="page-head"><h1>🧑‍💼 Staff & Salary</h1><div class="head-actions"><button class="ios-pill blue" onclick="showAddStaff()">+ Add Staff</button></div></div><div class="stat-grid" style="margin-bottom:14px"><div class="stat"><div class="stat-label">Active Staff</div><div class="stat-value">${active}</div></div><div class="stat"><div class="stat-label">Monthly Salary Budget</div><div class="stat-value">${fmtInt(DB.staff.filter(s=>s.active!==false).reduce((a,s)=>a+(Number(s.salary)||0),0))}</div></div><div class="stat"><div class="stat-label">Paid This Month</div><div class="stat-value">${fmtInt(payroll)}</div></div></div><div class="search-row">${searchBar('staff-search','🔍 Search staff name / phone...','staffSearch(this.value)')}</div><div class="view-scroll" id="staff-body"></div></div>`;
   const el=document.getElementById('staff-search'); if(el) el.value=staffQuery; renderStaffBody();
 }
 function staffSearch(v){staffQuery=v||'';renderStaffBody();}
-function renderStaffBody(){const root=document.getElementById('staff-body');if(!root)return;const q=staffQuery.toLowerCase();const rows=DB.staff.filter(s=>(s.name+' '+(s.phone||'')+' '+(s.position||'')).toLowerCase().includes(q)).sort((a,b)=>b.id-a.id);root.innerHTML=rows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Staff</th><th>Position</th><th>Phone</th><th>Monthly Salary</th><th>Paid This Month</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows.map(s=>{const m=today().slice(0,7),paid=DB.salary_payments.filter(p=>p.staff_id===s.id&&(p.paid_at||'').startsWith(m)).reduce((a,p)=>a+(Number(p.amount)||0),0);return `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.position||'—')}</td><td>${esc(s.phone||'—')}</td><td>${fmtInt(s.salary)}</td><td>${fmtInt(paid)}</td><td>${s.active===false?'<span class="badge">Inactive</span>':'<span class="badge badge-done">Active</span>'}</td><td><button class="ios-pill green sm" onclick="showPaySalary(${s.id})">Pay Salary</button> <button class="ios-pill ghost sm" onclick="showEditStaff(${s.id})">Edit</button> <button class="ios-pill ghost sm" onclick="showStaffHistory(${s.id})">History</button></td></tr>`}).join('')}</tbody></table></div>`:`<div class="empty-state">No staff added yet. Click “Add Staff” to begin.</div>`;}
+function renderStaffBody(){const root=document.getElementById('staff-body');if(!root)return;const q=staffQuery.toLowerCase();const rows=DB.staff.filter(s=>(s.name+' '+(s.phone||'')+' '+(s.position||'')).toLowerCase().includes(q)).sort((a,b)=>b.id-a.id);root.innerHTML=rows.length?`<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Staff</th><th>Position</th><th>Phone</th><th>Monthly Salary</th><th>Paid This Month</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows.map(s=>{const m=today().slice(0,7),paid=DB.salary_payments.filter(p=>p.staff_id===s.id&&(p.paid_at||'').startsWith(m)).reduce((a,p)=>a+(Number(p.amount)||0),0);return `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.position||'—')}</td><td>${esc(s.phone||'—')}</td><td>${fmtInt(s.salary)}</td><td>${fmtInt(paid)}</td><td>${s.active===false?'<span class="badge">Inactive</span>':'<span class="badge badge-done">Active</span>'}</td><td style="white-space:nowrap"><button class="ios-pill green sm" onclick="showPaySalary(${s.id})">Pay Salary</button> <button class="ios-pill ghost sm" onclick="showEditStaff(${s.id})">Edit</button> <button class="ios-pill ghost sm" onclick="showStaffHistory(${s.id})">History</button></td></tr>`}).join('')}</tbody></table></div>`:`<div class="card center pad muted">No staff added yet. Click “Add Staff” to begin.</div>`;}
 function showAddStaff(){openModal('Add Staff',`<div class="form-grid">${field('Full Name','<input id="st-name" class="ios-input" maxlength="80" placeholder="Staff name">',true)}${field('Position','<input id="st-position" class="ios-input" placeholder="Technician / Cashier">')}${field('Phone','<input id="st-phone" class="ios-input" inputmode="tel" placeholder="07XXXXXXXX">')}${field('Monthly Salary (LKR)',moneyInput('st-salary'),true)}${field('Start Date',`<input id="st-start" class="ios-input" type="date" value="${today()}">`)}${field('Note','<input id="st-note" class="ios-input" maxlength="160" placeholder="Optional note">')}</div>`,()=>{const name=document.getElementById('st-name').value.trim(),salary=Number(document.getElementById('st-salary').value||0);if(!name||salary<0){toast('Enter staff name and a valid salary','error');return false;}const staffId=nextId('staff');DB.staff.push({id:staffId,name,position:document.getElementById('st-position').value.trim(),phone:document.getElementById('st-phone').value.trim(),salary,start_date:document.getElementById('st-start').value,note:document.getElementById('st-note').value.trim(),active:true,created_at:now()});auditAction('create','staff',staffId,name);save();render();toast('Staff added','success');});}
 function showEditStaff(id){const s=DB.staff.find(x=>x.id===id);if(!s)return;openModal('Edit Staff',`<div class="form-grid">${field('Full Name',`<input id="st-name" class="ios-input" value="${esc(s.name)}">`,true)}${field('Position',`<input id="st-position" class="ios-input" value="${esc(s.position||'')}">`)}${field('Phone',`<input id="st-phone" class="ios-input" value="${esc(s.phone||'')}">`)}${field('Monthly Salary (LKR)',`<input id="st-salary" class="ios-input" type="number" min="0" step="0.01" value="${Number(s.salary)||0}">`,true)}${field('Start Date',`<input id="st-start" class="ios-input" type="date" value="${esc(s.start_date||today())}">`)}${field('Status',`<select id="st-active" class="ios-input"><option value="true" ${s.active!==false?'selected':''}>Active</option><option value="false" ${s.active===false?'selected':''}>Inactive</option></select>`)}</div>`,()=>{const name=document.getElementById('st-name').value.trim(),salary=Number(document.getElementById('st-salary').value||0);if(!name||salary<0){toast('Enter valid staff details','error');return false;}Object.assign(s,{name,position:document.getElementById('st-position').value.trim(),phone:document.getElementById('st-phone').value.trim(),salary,start_date:document.getElementById('st-start').value,active:document.getElementById('st-active').value==='true'});auditAction('update','staff',id,name);save();render();toast('Staff updated','success');});}
 function showPaySalary(id){const s=DB.staff.find(x=>x.id===id);if(!s)return;const month=today().slice(0,7),paid=DB.salary_payments.filter(p=>p.staff_id===id&&(p.paid_at||'').startsWith(month)).reduce((a,p)=>a+(Number(p.amount)||0),0);openModal('Pay Salary — '+s.name,`<div class="credit-notice">Monthly salary: <b>${fmtInt(s.salary)} LKR</b> · Already paid this month: <b>${fmtInt(paid)} LKR</b></div><div class="form-grid">${field('Payment Amount (LKR)',`<input id="sal-amount" class="ios-input" type="number" min="0.01" step="0.01" value="${Math.max(0,(Number(s.salary)||0)-paid)}">`,true)}${field('Payment Date',`<input id="sal-date" class="ios-input" type="date" value="${today()}">`,true)}${field('Payment Method','<select id="sal-method" class="ios-input"><option>Cash</option><option>Bank Transfer</option><option>Other</option></select>')}${field('Note','<input id="sal-note" class="ios-input" maxlength="160" placeholder="Salary for month / advance">')}</div>`,()=>{const amount=Number(document.getElementById('sal-amount').value||0),date=document.getElementById('sal-date').value,method=document.getElementById('sal-method').value,note=document.getElementById('sal-note').value.trim();if(amount<=0||!date){toast('Enter valid amount and date','error');return false;}const payId=nextId('salary_payments');DB.salary_payments.push({id:payId,staff_id:id,amount,paid_at:date+' '+now().slice(11),method,note,created_by:currentUser?.id||null});auditAction('create','salary_payment',payId,`${s.name}: ${amount} via ${method}`);if(method==='Cash')DB.cash_transactions.push({id:nextId('cash_transactions'),type:'cash_out',amount,note:`Salary: ${s.name}${note?' — '+note:''}`,category:'Salary',ref_type:'salary_payment',ref_id:payId,created_at:date+' '+now().slice(11),user_id:currentUser?.id||null});save();render();toast('Salary payment recorded','success');},'Record Payment');}
-function showStaffHistory(id){const s=DB.staff.find(x=>x.id===id);if(!s)return;const ps=DB.salary_payments.filter(p=>p.staff_id===id).sort((a,b)=>(b.paid_at||'').localeCompare(a.paid_at||''));openModal('Salary History — '+s.name,ps.length?`<div style="max-height:55vh;overflow:auto">${ps.map(p=>`<div class="list-row" style="padding:10px 0;border-bottom:1px solid var(--separator)"><div><b>${fmtInt(p.amount)} LKR</b><div class="muted small">${esc(p.paid_at||'')} · ${esc(p.method||'Cash')}</div><div class="muted small">${esc(p.note||'')}</div></div></div>`).join('')}</div>`:'<div class="empty-state">No salary payments recorded.</div>',()=>{},'Close');}
-function renderExpenses(root){const month=today().slice(0,7),exp=DB.expenses.filter(e=>(e.date||'').startsWith(month)),salary=DB.salary_payments.filter(p=>(p.paid_at||'').startsWith(month)).reduce((a,p)=>a+(Number(p.amount)||0),0),total=exp.reduce((a,e)=>a+(Number(e.amount)||0),0);root.innerHTML=`<div class="view-shell"><div class="page-head"><h1>🧾 Expenses</h1><div class="head-actions"><button class="ios-pill blue" onclick="showAddExpense()">+ Add Expense</button></div></div><div class="stats-grid" style="margin-bottom:14px"><div class="stat-card"><div class="stat-label">Expenses This Month</div><div class="stat-value">${fmtInt(total)}</div></div><div class="stat-card"><div class="stat-label">Salary Paid This Month</div><div class="stat-value">${fmtInt(salary)}</div></div><div class="stat-card"><div class="stat-label">Total Expenses + Salary</div><div class="stat-value">${fmtInt(total+salary)}</div></div></div><div class="search-row">${searchBar('expense-search','🔍 Search expense / category...','expenseSearch(this.value)')}<input id="exp-from" class="ios-input" type="date" value="${month}-01" onchange="renderExpenseRows()"><input id="exp-to" class="ios-input" type="date" value="${today()}" onchange="renderExpenseRows()"><button class="ios-pill ghost" onclick="exportExpensesCSV()">⬇ CSV</button></div><div class="view-scroll" id="expense-body"></div></div>`;const el=document.getElementById('expense-search');if(el)el.value=expenseQuery;renderExpenseRows();}
+function showStaffHistory(id){const s=DB.staff.find(x=>x.id===id);if(!s)return;const ps=DB.salary_payments.filter(p=>p.staff_id===id).sort((a,b)=>(b.paid_at||'').localeCompare(a.paid_at||''));openModal('Salary History — '+s.name,ps.length?`<div style="max-height:55vh;overflow:auto">${ps.map(p=>`<div class="list-row" style="padding:10px 0;border-bottom:1px solid var(--separator)"><div><b>${fmtInt(p.amount)} LKR</b><div class="muted small">${esc(p.paid_at||'')} · ${esc(p.method||'Cash')}</div><div class="muted small">${esc(p.note||'')}</div></div></div>`).join('')}</div>`:'<div class="card center pad muted">No salary payments recorded.</div>',()=>{},'Close');}
+function renderExpenses(root){const month=today().slice(0,7),exp=DB.expenses.filter(e=>(e.date||'').startsWith(month)),salary=DB.salary_payments.filter(p=>(p.paid_at||'').startsWith(month)).reduce((a,p)=>a+(Number(p.amount)||0),0),total=exp.reduce((a,e)=>a+(Number(e.amount)||0),0);root.innerHTML=`<div class="view-shell"><div class="page-head"><h1>🧾 Expenses</h1><div class="head-actions"><button class="ios-pill blue" onclick="showAddExpense()">+ Add Expense</button></div></div><div class="stat-grid" style="margin-bottom:14px"><div class="stat"><div class="stat-label">Expenses This Month</div><div class="stat-value">${fmtInt(total)}</div></div><div class="stat"><div class="stat-label">Salary Paid This Month</div><div class="stat-value">${fmtInt(salary)}</div></div><div class="stat"><div class="stat-label">Total Expenses + Salary</div><div class="stat-value">${fmtInt(total+salary)}</div></div></div><div class="search-row">${searchBar('expense-search','🔍 Search expense / category...','expenseSearch(this.value)')}<input id="exp-from" class="ios-input" type="date" value="${month}-01" onchange="renderExpenseRows()"><input id="exp-to" class="ios-input" type="date" value="${today()}" onchange="renderExpenseRows()"><button class="ios-pill ghost" onclick="exportExpensesCSV()">⬇ CSV</button></div><div class="view-scroll" id="expense-body"></div></div>`;const el=document.getElementById('expense-search');if(el)el.value=expenseQuery;renderExpenseRows();}
 function expenseSearch(v){expenseQuery=v||'';renderExpenseRows();}
 function showAddExpense(){openModal('Add Expense',`<div class="form-grid">${field('Expense Name','<input id="ex-name" class="ios-input" placeholder="Electricity bill / Internet bill">',true)}${field('Category','<select id="ex-category" class="ios-input"><option>Electricity</option><option>Water</option><option>Internet / Phone</option><option>Rent</option><option>Transport</option><option>Tools & Repair Parts</option><option>Shop Supplies</option><option>Bank Charges</option><option>Other</option></select>')}${field('Amount (LKR)',moneyInput('ex-amount'),true)}${field('Date',`<input id="ex-date" class="ios-input" type="date" value="${today()}">`,true)}${field('Payment Method','<select id="ex-method" class="ios-input"><option>Cash</option><option>Bank Transfer</option><option>Card</option><option>Credit / Unpaid</option></select>')}${field('Bill / Reference No.','<input id="ex-ref" class="ios-input" placeholder="Optional bill number">')}${field('Note','<input id="ex-note" class="ios-input" maxlength="200" placeholder="Optional details">')}</div>`,()=>{const name=document.getElementById('ex-name').value.trim(),amount=Number(document.getElementById('ex-amount').value||0),date=document.getElementById('ex-date').value,category=document.getElementById('ex-category').value,method=document.getElementById('ex-method').value,ref=document.getElementById('ex-ref').value.trim(),note=document.getElementById('ex-note').value.trim();if(!name||amount<=0||!date){toast('Enter name, valid amount and date','error');return false;}const expenseId=nextId('expenses');DB.expenses.push({id:expenseId,name,category,amount,date,method,reference:ref,note,created_at:now(),user_id:currentUser?.id||null});auditAction('create','expense',expenseId,`${name}: ${amount} via ${method}`);if(method==='Cash')DB.cash_transactions.push({id:nextId('cash_transactions'),type:'cash_out',amount,note:`Expense: ${name}${note?' — '+note:''}`,category,ref_type:'expense',ref_id:expenseId,created_at:date+' '+now().slice(11),user_id:currentUser?.id||null});save();render();toast('Expense recorded','success');},'Save Expense');}
-function renderExpenseRows(){const root=document.getElementById('expense-body');if(!root)return;const from=document.getElementById('exp-from')?.value||'0000-00-00',to=document.getElementById('exp-to')?.value||'9999-99-99',q=expenseQuery.toLowerCase();const rows=DB.expenses.filter(e=>(e.date||'')>=from&&(e.date||'')<=to&&(`${e.name} ${e.category} ${e.reference||''} ${e.note||''}`).toLowerCase().includes(q)).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id);root.innerHTML=rows.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Date</th><th>Expense</th><th>Category</th><th>Reference / Note</th><th>Method</th><th>Amount (LKR)</th><th></th></tr></thead><tbody>${rows.map(e=>`<tr><td>${esc(e.date)}</td><td><b>${esc(e.name)}</b></td><td>${esc(e.category||'Other')}</td><td>${esc([e.reference,e.note].filter(Boolean).join(' · ')||'—')}</td><td>${esc(e.method||'—')}</td><td class="danger-c"><b>${fmtInt(e.amount)}</b></td><td><button class="ios-pill ghost sm" onclick="deleteExpense(${e.id})">Delete</button></td></tr>`).join('')}</tbody><tfoot><tr><td colspan="5"><b>Filtered Total</b></td><td><b>${fmtInt(rows.reduce((a,e)=>a+(Number(e.amount)||0),0))}</b></td><td></td></tr></tfoot></table></div>`:'<div class="empty-state">No expenses for this period.</div>';}
+function renderExpenseRows(){const root=document.getElementById('expense-body');if(!root)return;const from=document.getElementById('exp-from')?.value||'0000-00-00',to=document.getElementById('exp-to')?.value||'9999-99-99',q=expenseQuery.toLowerCase();const rows=DB.expenses.filter(e=>(e.date||'')>=from&&(e.date||'')<=to&&(`${e.name} ${e.category} ${e.reference||''} ${e.note||''}`).toLowerCase().includes(q)).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id);root.innerHTML=rows.length?`<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Date</th><th>Expense</th><th>Category</th><th>Reference / Note</th><th>Method</th><th>Amount (LKR)</th><th></th></tr></thead><tbody>${rows.map(e=>`<tr><td>${esc(e.date)}</td><td><b>${esc(e.name)}</b></td><td>${esc(e.category||'Other')}</td><td>${esc([e.reference,e.note].filter(Boolean).join(' · ')||'—')}</td><td>${esc(e.method||'—')}</td><td class="danger-c"><b>${fmtInt(e.amount)}</b></td><td><button class="ios-pill ghost sm" onclick="deleteExpense(${e.id})">Delete</button></td></tr>`).join('')}</tbody><tfoot><tr><td colspan="5"><b>Filtered Total</b></td><td><b>${fmtInt(rows.reduce((a,e)=>a+(Number(e.amount)||0),0))}</b></td><td></td></tr></tfoot></table></div>`:'<div class="card center pad muted">No expenses for this period.</div>';}
 function deleteExpense(id){if(!requireAdmin())return;const e=DB.expenses.find(x=>x.id===id);if(!e||!confirm(`Delete expense “${e.name}”? This will not automatically reverse any cash transaction.`))return;DB.expenses=DB.expenses.filter(x=>x.id!==id);DB.cash_transactions=DB.cash_transactions.filter(t=>!(t.ref_type==='expense'&&t.ref_id===id));auditAction('delete','expense',id,e.name);save();renderExpenseRows();toast('Expense record deleted','success');}
 function exportExpensesCSV(){const rows=[['Date','Name','Category','Amount','Method','Reference','Note'],...DB.expenses.map(e=>[e.date,e.name,e.category,e.amount,e.method,e.reference,e.note])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'}));a.download=`expenses_${today()}.csv`;a.click();URL.revokeObjectURL(a.href);}
 
 function auditAction(action, entity, entityId, details=''){try{DB.audit_logs.push({id:nextId('audit_logs'),action,entity,entity_id:entityId,details,user_id:currentUser?.id||null,user_name:currentUser?.name||'Unknown',created_at:now()});}catch(e){}}
-function renderCashClosing(root){const rows=(DB.cash_closings||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));root.innerHTML=`<div class="view-shell"><div class="page-head"><h1>🧮 Daily Cash Closing</h1><div class="head-actions"><button class="ios-pill blue" onclick="showCashCloseForm()">+ Close Day</button></div></div><div class="credit-notice" style="margin-bottom:12px">Compare the system's expected cash with the physical cash counted in the drawer. Cash closing does not change sales or transactions.</div><div class="view-scroll"><div class="table-wrap"><table class="data-table"><thead><tr><th>Date</th><th>Expected Cash</th><th>Counted Cash</th><th>Difference</th><th>Closed By</th><th>Note</th></tr></thead><tbody>${rows.map(c=>`<tr><td>${esc(c.date)}</td><td>${fmtInt(c.expected)}</td><td>${fmtInt(c.counted)}</td><td class="${Number(c.variance)<0?'danger-c':Number(c.variance)>0?'success':''}"><b>${Number(c.variance)>0?'+':''}${fmtInt(c.variance)}</b></td><td>${esc(c.user_name||'')}</td><td>${esc(c.note||'')}</td></tr>`).join('')||'<tr><td colspan="6" class="muted center">No cash closing records yet.</td></tr>'}</tbody></table></div></div></div>`;}
+function renderCashClosing(root){const rows=(DB.cash_closings||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));root.innerHTML=`<div class="view-shell"><div class="page-head"><h1>🧮 Daily Cash Closing</h1><div class="head-actions"><button class="ios-pill blue" onclick="showCashCloseForm()">+ Close Day</button></div></div><div class="stat-grid" style="margin-bottom:12px"><div class="stat"><div class="stat-label">Expected Cash Today</div><div class="stat-value success">${fmtInt(getCashSummary().balance)}</div></div><div class="stat"><div class="stat-label">Today's Closing</div><div class="stat-value">${(DB.cash_closings||[]).find(x=>x.date===today())?'Done ✓':'Pending'}</div></div><div class="stat"><div class="stat-label">Last Difference</div><div class="stat-value ${rows[0]&&Number(rows[0].variance)<0?'danger-c':''}">${rows[0]?fmtInt(rows[0].variance):'—'}</div><div class="stat-sub">${rows[0]?esc(rows[0].date):''}</div></div></div><div class="credit-notice" style="margin-bottom:12px">Compare the system's expected cash with the physical cash counted in the drawer. Cash closing does not change sales or transactions.</div><div class="view-scroll"><div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Date</th><th>Expected Cash</th><th>Counted Cash</th><th>Difference</th><th>Closed By</th><th>Note</th></tr></thead><tbody>${rows.map(c=>`<tr><td>${esc(c.date)}</td><td>${fmtInt(c.expected)}</td><td>${fmtInt(c.counted)}</td><td class="${Number(c.variance)<0?'danger-c':Number(c.variance)>0?'success':''}"><b>${Number(c.variance)>0?'+':''}${fmtInt(c.variance)}</b></td><td>${esc(c.user_name||'')}</td><td>${esc(c.note||'')}</td></tr>`).join('')||'<tr><td colspan="6" class="muted center">No cash closing records yet.</td></tr>'}</tbody></table></div></div></div>`;}
 function showCashCloseForm(){const date=today(),expected=getCashSummary(date).balance,existing=(DB.cash_closings||[]).find(x=>x.date===date);openModal('Close Cash Drawer — '+date,`<div class="form-grid"><div class="credit-notice">Expected cash from recorded cash transactions: <b>${fmtInt(expected)} LKR</b></div>${field('Actual Cash Counted (LKR)',`<input id="cc-counted" class="ios-input" type="number" min="0" step="0.01" value="${existing?Number(existing.counted):''}" placeholder="Count notes and coins">`,true)}${field('Note / Difference Reason',`<input id="cc-note" class="ios-input" maxlength="200" value="${esc(existing?.note||'')}" placeholder="Short / excess / explanation">`)}</div>`,()=>{const counted=Number(document.getElementById('cc-counted').value),note=document.getElementById('cc-note').value.trim();if(document.getElementById('cc-counted').value===''||counted<0){toast('Enter the actual cash counted','error');return false;}const row={id:existing?.id||nextId('cash_closings'),date,expected,counted,variance:counted-expected,note,user_id:currentUser?.id||null,user_name:currentUser?.name||'',closed_at:now()};if(existing)Object.assign(existing,row);else DB.cash_closings.push(row);auditAction(existing?'update':'create','cash_closing',row.id,`Expected ${expected}; counted ${counted}; variance ${row.variance}`);save();render();toast('Cash closing saved','success');},existing?'Update Closing':'Save Closing');}
 
-function renderReports(root) { root.innerHTML = `<div class="view-shell"><div class="page-head"><h1>Reports</h1></div><div class="search-row">${searchBar('rep-search','🔍 Search invoices, customers...','reportSearch(this.value)')}<input id="rep-from" class="ios-input" type="date" value="${today()}" style="max-width:160px" onchange="runReport()"><input id="rep-to" class="ios-input" type="date" value="${today()}" style="max-width:160px" onchange="runReport()">${reportTab === 'sales' ? '<button class="ios-pill ghost" onclick="exportReportCSV()">⬇ CSV</button>' : ''}</div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><div class="filter-pills"><div class="filter-pill ${reportTab==='sales'?'active':''}" onclick="reportSetTab('sales')">💰 Sales</div><div class="filter-pill red-pill ${reportTab==='returns'?'active':''}" onclick="reportSetTab('returns')">↩️ Returns <span class="count">${DB.returns.length}</span></div></div></div><div class="view-scroll" id="rep-body"></div></div>`; if (reportQuery) document.getElementById('rep-search').value = reportQuery; runReport(); }
+const REP_RANGES=[['today','Daily'],['7d','7D'],['1m','1M'],['6m','6M'],['1y','1Y'],['custom','Custom']];
+function ymd(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function repBounds(){
+ if(repRange==='custom')return [repFrom,repTo];
+ const f=new Date(), to=ymd(f);
+ if(repRange==='7d')f.setDate(f.getDate()-6);
+ else if(repRange==='1m'){f.setMonth(f.getMonth()-1);f.setDate(f.getDate()+1);}
+ else if(repRange==='6m'){f.setMonth(f.getMonth()-6);f.setDate(f.getDate()+1);}
+ else if(repRange==='1y'){f.setFullYear(f.getFullYear()-1);f.setDate(f.getDate()+1);}
+ return [ymd(f),to];
+}
+function repTabs(){const a=[['invoices','🧾 Invoices'],['repairs','🔧 Repairs'],['cash','💵 Cash'],['returns','↩️ Returns']];return canSeeCost()?[['overview','📊 Overview'],a[0],a[1],['credit','💳 Credit'],a[2],a[3]]:a;}
+function repSetRange(r){repRange=r;renderReports(document.getElementById('content'));}
+function repDays(f,t){const out=[];for(let d=new Date(f+'T00:00:00');ymd(d)<=t&&out.length<400;d.setDate(d.getDate()+1))out.push(ymd(d));return out;}
+function repOverview(f,t){
+ const by={};DB.sales.forEach(s=>{const d=(s.created_at||'').slice(0,10);if(d>=f&&d<=t)(by[d]=by[d]||[]).push(s);});
+ const rbd={};DB.repairs.forEach(r=>{if(r.status==='delivered'&&r.delivered_at){const d=r.delivered_at.slice(0,10);if(d>=f&&d<=t)rbd[d]=(rbd[d]||0)+(Number(r.final_cost)||0)-(Number(r.cost)||0);}});
+ const rows=[];
+ repDays(f,t).forEach(d=>{
+  const ss=by[d]||[], re=reloadEntriesFor(d);
+  const rpd=rbd[d]||0; if(!ss.length&&!re.length&&!rpd)return;
+  const rs=re.length?reloadDaySummary(d):{hasClosing:false,profit:0,activeCount:0}, rsale=re.filter(x=>x.type==='sale').reduce((a,x)=>a+Number(x.amount||0),0);
+  const sales=ss.reduce((a,s)=>a+s.total,0), cost=ss.reduce((a,s)=>a+(s.cost_total||0),0);
+  rows.push({d,n:ss.length,sales,paid:ss.reduce((a,s)=>a+(s.paid_amount||0),0),rsale,rprofit:rs.hasClosing?rs.profit:0,rpend:rs.activeCount>0&&!rs.hasClosing,profit:sales-cost-rsale+(rs.hasClosing?rs.profit:0)+rpd});
+ });
+ const k=x=>rows.reduce((a,r)=>a+r[x],0), rets=DB.returns.filter(r=>{const d=(r.created_at||'').slice(0,10);return d>=f&&d<=t;}).reduce((a,r)=>a+r.refund_amount,0);
+ const rpf=DB.repairs.filter(r=>r.status==='delivered'&&(r.delivered_at||'').slice(0,10)>=f&&(r.delivered_at||'').slice(0,10)<=t).reduce((a,r)=>a+(Number(r.final_cost)||0)-(Number(r.cost)||0),0);
+ return {rpf,rows,n:k('n'),sales:k('sales'),paid:k('paid'),rsale:k('rsale'),rprofit:k('rprofit'),profit:k('profit'),rets,pend:rows.some(r=>r.rpend)};
+}
+function renderReports(root) {
+ if(!repTabs().some(t=>t[0]===reportTab)) reportTab=repTabs()[0][0];
+ const t=reportTab, tabs=repTabs().map(([k,l])=>`<div class="filter-pill ${t===k?'active':''}" onclick="reportSetTab('${k}')">${l}</div>`).join('');
+ const hasRange=['overview','invoices','repairs','cash'].includes(t);
+ const seg=hasRange?`<div class="segmented" style="margin-bottom:10px">${REP_RANGES.map(([k,l])=>`<button class="${repRange===k?'active':''}" onclick="repSetRange('${k}')">${l}</button>`).join('')}</div>`:'';
+ const ctl=[(t==='invoices'||t==='cash'||t==='repairs')?searchBar('rep-search','🔍 Search...','reportSearch(this.value)'):'',(hasRange&&repRange==='custom')?`<input id="rep-from" class="ios-input" type="date" value="${repFrom}" style="max-width:150px" onchange="repFrom=this.value;runReport()"><input id="rep-to" class="ios-input" type="date" value="${repTo}" style="max-width:150px" onchange="repTo=this.value;runReport()">`:'',t==='invoices'?'<button class="ios-pill ghost" onclick="exportReportCSV()">⬇ CSV</button>':''].join('');
+ root.innerHTML=`<div class="view-shell"><div class="page-head"><div><h1>📊 Reports</h1><p>Profit, sales, credit, cash &amp; invoices</p></div></div><div class="filter-pills" style="margin-bottom:10px">${tabs}</div>${seg}${ctl?`<div class="search-row">${ctl}</div>`:''}<div class="view-scroll" id="rep-body"></div></div>`;
+ if(reportQuery){const el=document.getElementById('rep-search');if(el)el.value=reportQuery;}
+ runReport();
+}
 function reportSearch(v){ reportQuery = v; runReport(); }
 function reportSetTab(t){ reportTab = t; renderReports(document.getElementById('content')); }
 function runReport() {
-  const body = document.getElementById('rep-body'); if (!body) return;
-  if (reportTab === 'returns') { body.innerHTML = renderReturnsList(); return; }
-  const from = document.getElementById('rep-from').value; const to = document.getElementById('rep-to').value;
-  const q = reportQuery.trim().toLowerCase(); const cv = canSeeCost();
-  let sales = DB.sales.filter(s => { const d = s.created_at.slice(0,10); return d >= from && d <= to; });
-  if (q) sales = sales.filter(s => { const c = DB.customers.find(x=>x.id===s.customer_id); const u = DB.users.find(x=>x.id===s.user_id); return (s.invoice_no||'').toLowerCase().includes(q) || (c?.name||'').toLowerCase().includes(q) || (u?.name||'').toLowerCase().includes(q); });
-  sales.sort((a,b)=>b.id-a.id);
-  const total = sales.reduce((a,s)=>a+s.total,0), paid = sales.reduce((a,s)=>a+s.paid_amount,0);
-  const profit = sales.reduce((a,s)=>a+s.total-(s.cost_total||0),0);
-  const creditNew = sales.reduce((a,s)=>a+(s.balance||0),0);
-  const pRets = DB.returns.filter(r => { const d = r.created_at.slice(0,10); return d >= from && d <= to; });
-  const retsTotal = pRets.reduce((a,r)=>a+r.refund_amount,0);
-  body.innerHTML = `<div class="stat-grid" style="margin-bottom:14px"><div class="stat"><div class="stat-label">Sales Total</div><div class="stat-value">${fmtInt(total)}</div></div><div class="stat"><div class="stat-label">Received</div><div class="stat-value success">${fmtInt(paid)}</div></div>${cv ? `<div class="stat"><div class="stat-label">Est. Profit</div><div class="stat-value success">${fmtInt(profit)}</div></div>` : ''}<div class="stat"><div class="stat-label">New Credit</div><div class="stat-value warn">${fmtInt(creditNew)}</div></div>${retsTotal > 0 ? `<div class="stat" style="border-color:rgba(255,69,58,.5)"><div class="stat-label">Returns</div><div class="stat-value danger-c">${fmtInt(retsTotal)}</div></div>` : ''}<div class="stat"><div class="stat-label">Invoices</div><div class="stat-value primary-c">${sales.length}</div></div></div>${sales.length ? `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Cashier</th><th>Total</th><th>Paid</th><th>Balance</th><th>Actions</th></tr></thead><tbody>${sales.map(s => { const c = DB.customers.find(x=>x.id===s.customer_id); const u = DB.users.find(x=>x.id===s.user_id); const rt = getSaleReturnTotal(s.id); return `<tr><td class="muted small">${esc(s.invoice_no)}${rt>0?' <span class="danger-c">↩</span>':''}</td><td class="muted small">${esc(s.created_at)}</td><td>${esc(c?.name||'Walk-in')}</td><td class="muted small">${esc(u?.name||'-')}</td><td class="strong">${fmtInt(s.total)}</td><td class="success">${fmtInt(s.paid_amount)}</td><td class="${s.balance>0?'warn':''}">${fmtInt(s.balance)}</td><td style="display:flex;gap:4px;flex-wrap:wrap"><button class="ios-pill sm" onclick="printSaleReceipt(${s.id})">🖨️</button><button class="ios-pill wa sm" onclick="promptWhatsApp(${s.id})">💬</button><button class="ios-pill red sm" onclick="showReturnModal(${s.id})">↩️</button></td></tr>`; }).join('')}</tbody></table></div>` : '<div class="card center pad muted">No invoices</div>'}`;
+ const body = document.getElementById('rep-body'); if (!body) return;
+ const st=(l,v,c='',s='')=>`<div class="stat"><div class="stat-label">${l}</div><div class="stat-value ${c}">${v}</div>${s?`<div class="stat-sub">${s}</div>`:''}</div>`;
+ const [f,t]=repBounds(); if(repRange!=='custom'){repFrom=f;repTo=t;}
+ const inR=x=>{const d=(x||'').slice(0,10);return d>=f&&d<=t;}, q=reportQuery.trim().toLowerCase();
+ if (reportTab === 'returns') { body.innerHTML = renderReturnsList(); return; }
+ if (reportTab === 'overview') {
+  const M=repOverview(f,t), monthly=(repRange==='6m'||repRange==='1y');
+  let rows=M.rows;
+  if(monthly){const g={};rows.forEach(r=>{const k=r.d.slice(0,7),o=g[k]=g[k]||{d:k,n:0,sales:0,rsale:0,profit:0,rpend:false};o.n+=r.n;o.sales+=r.sales;o.rsale+=r.rsale;o.profit+=r.profit;o.rpend=o.rpend||r.rpend;});rows=Object.values(g);}
+  const outstanding=DB.customers.reduce((a,c)=>a+Math.max(0,Number(c.balance)||0),0), oc=DB.customers.filter(c=>(Number(c.balance)||0)>0).length;
+  body.innerHTML=`<div class="muted small" style="margin-bottom:8px">${f} → ${t}</div><div class="stat-grid" style="margin-bottom:14px">${st('Sales',fmtInt(M.sales),'',M.n+' invoices')}${st('Profit',fmtInt(M.profit),'success',M.pend?'reload profit pending (no closing)':'incl. reload & repair profit')}${st('Reload Sales',fmtInt(M.rsale))}${st('Reload Profit',fmtInt(M.rprofit),'success')}${st('Repair Profit',fmtInt(M.rpf),'success','delivered jobs')}${st('Received',fmtInt(M.paid),'success')}${st('Outstanding Credit',fmtInt(outstanding),outstanding>0?'warn':'',oc+' customer'+(oc!==1?'s':'')+' owe')}${M.rets>0?st('Returns',fmtInt(M.rets),'danger-c'):''}</div><div class="card"><h3>${monthly?'Monthly':'Daily'} breakdown</h3>${rows.length?`<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>${monthly?'Month':'Date'}</th><th>Invoices</th><th>Sales</th><th>Reload</th><th>Profit</th></tr></thead><tbody>${rows.slice().reverse().map(r=>`<tr><td class="muted small">${r.d}</td><td>${r.n}</td><td>${fmtInt(r.sales)}</td><td>${fmtInt(r.rsale)}${r.rpend?' <span class="warn small">⏳</span>':''}</td><td class="success">${fmtInt(r.profit)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted center pad small">No sales in this period</p>'}</div>`;
+  return;
+ }
+ if (reportTab === 'credit') {
+  const cust=DB.customers.filter(c=>(Number(c.balance)||0)>0).sort((a,b)=>b.balance-a.balance), tot=cust.reduce((a,c)=>a+Number(c.balance),0), shopOut=DB.shops.reduce((a,s)=>a+calcShopOutstanding(s),0);
+  body.innerHTML=`<div class="stat-grid" style="margin-bottom:14px">${st('Outstanding Credit',fmtInt(tot),'warn',cust.length+' customers owe')}${st('Shop Outstanding',fmtInt(shopOut),shopOut>0?'danger-c':'')}</div>${cust.length?`<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Customer</th><th>Phone</th><th>Outstanding</th><th></th></tr></thead><tbody>${cust.map(c=>`<tr><td class="strong">${esc(c.name)}</td><td class="muted small">${esc(c.phone||'-')}</td><td class="danger-c strong">${fmtInt(c.balance)}</td><td><button class="ios-pill orange sm" onclick="recordCreditPayment(${c.id})">Pay</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="card center pad muted">No outstanding credit 🎉</div>'}`;
+  return;
+ }
+ if (reportTab === 'repairs') {
+  let rs=DB.repairs.filter(r=>{const d=(r.delivered_at||r.received_at||'').slice(0,10);return d>=f&&d<=t;});
+  if(q) rs=rs.filter(r=>{const c=DB.customers.find(x=>x.id===r.customer_id);return [r.job_no,r.device_brand,r.device_model,r.imei,r.issue,c?.name,c?.phone].join(' ').toLowerCase().includes(q);});
+  rs.sort((a,b)=>(b.delivered_at||b.received_at||'').localeCompare(a.delivered_at||a.received_at||''));
+  const cv=canSeeCost(), del=rs.filter(r=>r.status==='delivered'), rev=del.reduce((a,r)=>a+(Number(r.final_cost)||0),0), cst=del.reduce((a,r)=>a+(Number(r.cost)||0),0);
+  body.innerHTML=`<div class="muted small" style="margin-bottom:8px">${f} → ${t}</div><div class="stat-grid" style="margin-bottom:14px">${st('Jobs',rs.length,'primary-c')}${st('Delivered',del.length,'success')}${st('Still open',rs.length-del.length,'warn')}${st('Revenue',fmtInt(rev))}${cv?st('Repair Cost',fmtInt(cst),'warn'):''}${cv?st('Repair Profit',fmtInt(rev-cst),'success'):''}</div>${rs.length?`<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Job</th><th>Date</th><th>Customer</th><th>Device</th><th>Status</th><th>Price</th><th>Paid</th>${cv?'<th>Cost</th><th>Profit</th>':''}<th></th></tr></thead><tbody>${rs.slice(0,300).map(r=>{const c=DB.customers.find(x=>x.id===r.customer_id),dl=r.status==='delivered',pr=repairPrice(r);return `<tr><td class="muted small">${esc(r.job_no)}</td><td class="muted small">${esc((r.delivered_at||r.received_at||'').slice(0,10))}</td><td class="strong">${esc(c?.name||'-')}</td><td>${esc(r.device_brand)} ${esc(r.device_model)}<div class="muted small">${esc(r.imei||'')}</div></td><td><span class="badge badge-${r.status}">${r.status.replace(/_/g,' ')}</span></td><td class="strong">${fmtInt(pr)}</td><td class="success">${fmtInt(r.advance_paid||0)}</td>${cv?`<td class="warn">${fmtInt(r.cost||0)}</td><td class="success">${dl?fmtInt(pr-(Number(r.cost)||0)):'—'}</td>`:''}<td><button class="ios-pill sm" onclick="showRepairDetails(${r.id})">👁 Details</button></td></tr>`;}).join('')}</tbody></table></div>`:'<div class="card center pad muted">No repair jobs in this period</div>'}`;
+  return;
+ }
+ if (reportTab === 'cash') {
+  const sc=DB.sales.filter(s=>inR(s.created_at)&&(s.payment_method||'cash')==='cash').reduce((a,s)=>a+(Number(s.paid_amount)||0),0);
+  const cc=(DB.credit_payments||[]).filter(p=>inR(p.created_at)&&(p.method||'cash')==='cash').reduce((a,p)=>a+(Number(p.amount)||0),0);
+  const rp=(DB.repair_payments||[]).filter(x=>inR(x.created_at)).reduce((a,x)=>a+(Number(x.amount)||0),0);
+  const cr=(DB.returns||[]).filter(r=>inR(r.created_at)&&r.refund_method==='cash').reduce((a,r)=>a+(Number(r.refund_amount)||0),0);
+  let mv=(DB.cash_transactions||[]).filter(x=>inR(x.created_at));
+  const ci=mv.filter(x=>x.type==='cash_in').reduce((a,x)=>a+(Number(x.amount)||0),0), co=mv.filter(x=>x.type==='cash_out').reduce((a,x)=>a+(Number(x.amount)||0),0);
+  if(repCashType!=='all')mv=mv.filter(x=>x.type===repCashType);
+  if(q)mv=mv.filter(x=>[x.note,x.category,DB.users.find(u=>u.id===x.user_id)?.name].join(' ').toLowerCase().includes(q));
+  mv.sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||'')||b.id-a.id);
+  const pills=[['all','All'],['cash_out','💸 Cash Out'],['cash_in','💵 Cash In']].map(([k,l])=>`<div class="filter-pill ${repCashType===k?'active':''}" onclick="repCashType='${k}';runReport()">${l}</div>`).join('');
+  body.innerHTML=`<div class="muted small" style="margin-bottom:8px">${f} → ${t}</div><div class="stat-grid" style="margin-bottom:14px">${st('Cash Sales',fmtInt(sc),'success')}${st('Credit Received',fmtInt(cc),'success')}${st('Repair Payments',fmtInt(rp),'success')}${st('Cash In',fmtInt(ci),'success')}${st('Cash Out',fmtInt(co),'warn')}${st('Cash Refunds',fmtInt(cr),cr>0?'danger-c':'')}${st('Net Cash',fmtInt(sc+cc+rp+ci-co-cr),'primary-c')}</div><div class="filter-pills" style="margin-bottom:10px">${pills}</div>${mv.length?`<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Note</th><th>By</th><th>Amount</th></tr></thead><tbody>${mv.slice(0,300).map(x=>`<tr><td class="muted small">${esc((x.created_at||'').slice(0,16).replace('T',' '))}</td><td>${x.type==='cash_out'?'💸 Out':'💵 In'}</td><td>${esc(x.category||'Other')}</td><td>${esc(x.note||'')}</td><td class="muted small">${esc(DB.users.find(u=>u.id===x.user_id)?.name||'-')}</td><td class="strong ${x.type==='cash_out'?'warn':'success'}">${x.type==='cash_out'?'-':'+'}${fmtInt(x.amount)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="card center pad muted">No cash movements in this period</div>'}`;
+  return;
+ }
+ let sales = DB.sales.filter(s => inR(s.created_at));
+ if (q) sales = sales.filter(s => { const c = DB.customers.find(x=>x.id===s.customer_id); const u = DB.users.find(x=>x.id===s.user_id); if ((s.invoice_no||'').toLowerCase().includes(q) || (c?.name||'').toLowerCase().includes(q) || (c?.phone||'').toLowerCase().includes(q) || (u?.name||'').toLowerCase().includes(q)) return true; return DB.sale_items.some(it => it.sale_id===s.id && ((it.description||'').toLowerCase().includes(q) || (it.item_code||'').toLowerCase().includes(q) || (it.barcode||'').toLowerCase().includes(q))); });
+ sales.sort((a,b)=>b.id-a.id);
+ const total = sales.reduce((a,s)=>a+s.total,0), paid = sales.reduce((a,s)=>a+s.paid_amount,0), bal = sales.reduce((a,s)=>a+(s.balance||0),0);
+ body.innerHTML = `<div class="muted small" style="margin-bottom:8px">${f} → ${t}</div><div class="stat-grid" style="margin-bottom:14px">${st('Invoices',sales.length,'primary-c')}${st('Sales Total',fmtInt(total))}${st('Received',fmtInt(paid),'success')}${st('Balance Due',fmtInt(bal),'warn')}</div>${sales.length ? `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Total</th><th>Paid</th><th>Balance</th><th></th></tr></thead><tbody>${sales.slice(0,200).map(s => { const c = DB.customers.find(x=>x.id===s.customer_id); const rt = getSaleReturnTotal(s.id); return `<tr><td class="muted small">${esc(s.invoice_no)}${rt>0?' <span class="danger-c">↩</span>':''}</td><td class="muted small">${esc((s.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(c?.name||'Walk-in')}</td><td class="strong">${fmtInt(s.total)}</td><td class="success">${fmtInt(s.paid_amount)}</td><td class="${s.balance>0?'warn':''}">${fmtInt(s.balance)}</td><td style="white-space:nowrap"><button class="ios-pill sm" onclick="openBillFromSearch(${s.id})">👁 View</button> <button class="ios-pill red sm" onclick="showReturnModal(${s.id})">↩️</button></td></tr>`; }).join('')}</tbody></table></div>${sales.length>200?'<p class="muted center small" style="margin-top:8px">Showing latest 200 — narrow the period or search</p>':''}` : '<div class="card center pad muted">No invoices found</div>'}`;
 }
 function exportReportCSV() {
-  const from = document.getElementById('rep-from').value, to = document.getElementById('rep-to').value;
+  const from = repFrom, to = repTo;
   const sales = DB.sales.filter(s => { const d = s.created_at.slice(0,10); return d >= from && d <= to; });
   const rows = [['Invoice','Date','Customer','Cashier','Total','Paid','Balance','Method','Returns']];
   sales.forEach(s => { const c = DB.customers.find(x=>x.id===s.customer_id); const u = DB.users.find(x=>x.id===s.user_id); rows.push([s.invoice_no,s.created_at,c?.name||'Walk-in',u?.name||'-',s.total,s.paid_amount,s.balance,s.payment_method,getSaleReturnTotal(s.id)]); });
@@ -2943,7 +3203,7 @@ function renderSettingsBody() {
   if (settingsTab === 'shop') {
     const s = DB.settings;
     const lh = s.shop_logo ? `<img src="${s.shop_logo}" class="logo-preview" alt="">` : `<div class="logo-preview">📱</div>`;
-    body.innerHTML = `<div class="card" style="max-width:600px;margin-bottom:14px"><h3>🖼️ Shop Logo</h3><div class="logo-row">${lh}<div style="flex:1"><div class="muted small" style="margin-bottom:8px">Square image (PNG/JPG, max 500 KB)</div><div class="row gap" style="flex-wrap:wrap"><label class="ios-pill blue sm" style="cursor:pointer;margin:0">📤 Upload<input type="file" accept="image/*" style="display:none" onchange="handleLogoUpload(this.files[0]);this.value=''"></label>${s.shop_logo ? `<button class="ios-pill red sm" onclick="removeLogo()">🗑 Remove</button>` : ''}</div></div></div></div><div class="card" style="max-width:600px"><h3>Shop Info</h3><div class="form-grid">${field('Shop name', `<input id="s-name" class="ios-input" value="${esc(s.shop_name)}">`, true)}${field('Address', `<input id="s-addr" class="ios-input" value="${esc(s.shop_address)}">`)}${field('Phone', `<input id="s-phone" class="ios-input" value="${esc(s.shop_phone)}">`)}${field('Currency', `<input id="s-cur" class="ios-input" value="${esc(s.currency)}">`)}${field('Default low stock', `<input id="s-low" class="ios-input" type="number" value="${s.low_stock}">`)}${field('🖨️ Print paper size', `<select id="s-print" class="ios-input"><option value="58mm" ${s.print_size==='58mm'?'selected':''}>58mm (2" thermal)</option><option value="80mm" ${s.print_size==='80mm'?'selected':''}>80mm (3" thermal)</option><option value="A5" ${s.print_size==='A5'?'selected':''}>A5 paper</option></select>`, false, '2mm/2.5mm thermal printers → choose 58mm')}</div><button class="ios-pill blue mt" onclick="saveSettings()">Save Settings</button></div>`;
+    body.innerHTML = `<div class="card" style="max-width:600px;margin-bottom:14px"><h3>🖼️ Shop Logo</h3><div class="logo-row">${lh}<div style="flex:1"><div class="muted small" style="margin-bottom:8px">Square image (PNG/JPG, max 500 KB)</div><div class="row gap" style="flex-wrap:wrap"><label class="ios-pill blue sm" style="cursor:pointer;margin:0">📤 Upload<input type="file" accept="image/*" style="display:none" onchange="handleLogoUpload(this.files[0]);this.value=''"></label>${s.shop_logo ? `<button class="ios-pill red sm" onclick="removeLogo()">🗑 Remove</button>` : ''}</div></div></div></div><div class="card" style="max-width:600px"><h3>Shop Info</h3><div class="form-grid">${field('Shop name', `<input id="s-name" class="ios-input" value="${esc(s.shop_name)}">`, true)}${field('Address', `<input id="s-addr" class="ios-input" value="${esc(s.shop_address)}">`)}${field('Phone', `<input id="s-phone" class="ios-input" value="${esc(s.shop_phone)}">`)}${field('Subtitle under shop name', `<input id="s-brand" class="ios-input" value="${esc(s.brand_name||'pos-lookmobile')}">`)}${field('Subtitle phone', `<input id="s-bphone" class="ios-input" value="${esc(s.brand_phone||'0756947700')}">`)}${field('Currency', `<input id="s-cur" class="ios-input" value="${esc(s.currency)}">`)}${field('Default low stock', `<input id="s-low" class="ios-input" type="number" value="${s.low_stock}">`)}${field('🖨️ Print paper size', `<select id="s-print" class="ios-input"><option value="58mm" ${s.print_size==='58mm'?'selected':''}>58mm (2" thermal)</option><option value="80mm" ${s.print_size==='80mm'?'selected':''}>80mm (3" thermal)</option><option value="A5" ${s.print_size==='A5'?'selected':''}>A5 paper</option></select>`, false, '2mm/2.5mm thermal printers → choose 58mm')}</div><button class="ios-pill blue mt" onclick="saveSettings()">Save Settings</button></div>`;
   } else if (settingsTab === 'users') {
     let users = DB.users;
     if (q) users = users.filter(u => (u.username||'').toLowerCase().includes(q) || (u.name||'').toLowerCase().includes(q) || (u.role||'').toLowerCase().includes(q));
@@ -2954,7 +3214,7 @@ function renderSettingsBody() {
 }
 function restoreFromSafety() { const b = loadSafetyBackup(); if (!isValidDB(b)) { toast('No valid backup found','error'); return; } if (!confirm('Restore from safety backup?')) return; DB = b; migrateDB(); markDirty(); pushToFirebase(); toast('♻️ Restored from backup','success'); setTimeout(()=>location.reload(), 800); }
 async function reloadFromServer() { if (!confirm('Reload from Firebase?')) return; try { const snap = await fbRef.once('value'); const remote = fromFirebase(snap.val()); if (isValidDB(remote)) { DB = remote; lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal(); clearDirty(); applyTheme(DB.settings.theme||'dark'); applyLogo(); render(); toast('Reloaded','success'); } else toast('Remote data invalid','error'); } catch(e) { toast('Failed: ' + e.message, 'error'); } }
-function saveSettings() { DB.settings.shop_name = document.getElementById('s-name').value.trim() || 'PHONE HUB'; DB.settings.shop_address = document.getElementById('s-addr').value.trim(); DB.settings.shop_phone = document.getElementById('s-phone').value.trim(); DB.settings.currency = document.getElementById('s-cur').value.trim() || 'LKR'; DB.settings.low_stock = Number(document.getElementById('s-low').value || 2); DB.settings.print_size = document.getElementById('s-print').value || '58mm'; save(); toast('Settings saved','success'); document.getElementById('side-shop-name').textContent = DB.settings.shop_name; }
+function saveSettings() { DB.settings.shop_name = document.getElementById('s-name').value.trim() || 'PHONE HUB'; DB.settings.shop_address = document.getElementById('s-addr').value.trim(); DB.settings.shop_phone = document.getElementById('s-phone').value.trim(); DB.settings.currency = document.getElementById('s-cur').value.trim() || 'LKR'; DB.settings.low_stock = Number(document.getElementById('s-low').value || 2); DB.settings.print_size = document.getElementById('s-print').value || '58mm'; DB.settings.brand_name = document.getElementById('s-brand').value.trim() || 'pos-lookmobile'; DB.settings.brand_phone = document.getElementById('s-bphone').value.trim() || '0756947700'; save(); applyBrand(); toast('Settings saved','success'); document.getElementById('side-shop-name').textContent = DB.settings.shop_name; }
 
 /* ═══════════════════════════════════════════════════════════════
    RESET ALL DATA — WORKS RELIABLY NOW
@@ -3046,9 +3306,10 @@ function printSaleReceipt(saleId) {
 }
 function printRepairReceipt(repairId) {
   const r = DB.repairs.find(x=>x.id===repairId); if (!r) return;
-  const c = DB.customers.find(x=>x.id===r.customer_id); const cfg = DB.settings;
+  const c = DB.customers.find(x=>x.id===r.customer_id), cfg = DB.settings, del = r.status === 'delivered';
+  const price = repairPrice(r), paid = Number(r.advance_paid)||0, bal = Math.max(0, price - paid), L = (a,b) => `<div class="row-line"><span>${a}</span><span>${b}</span></div>`;
   applyPrintSize();
-  document.getElementById('receipt').innerHTML = `<div class="center">${cfg.shop_logo ? `<img src="${cfg.shop_logo}" class="receipt-logo" alt="">` : ''}<div style="font-size:14px;font-weight:bold">${esc(cfg.shop_name)}</div><div>${esc(cfg.shop_phone)}</div></div><hr><div class="center" style="font-weight:bold">REPAIR SLIP</div><hr><div class="row-line"><span>Job:</span><span>${esc(r.job_no)}</span></div><div class="row-line"><span>Date:</span><span>${esc(r.received_at)}</span></div>${c ? `<div class="row-line"><span>Customer:</span><span>${esc(c.name)}</span></div>` : ''}${c && c.phone ? `<div class="row-line"><span>Phone:</span><span>${esc(c.phone)}</span></div>` : ''}<div class="row-line"><span>Device:</span><span>${esc(r.device_brand)} ${esc(r.device_model)}</span></div>${r.imei ? `<div class="row-line"><span>IMEI:</span><span>${esc(r.imei)}</span></div>` : ''}<div><b>Issue:</b> ${esc(r.issue)}</div>${r.diagnosis ? `<div><b>Diagnosis:</b> ${esc(r.diagnosis)}</div>` : ''}<hr><div class="row-line"><span>Estimate:</span><span>${fmt(r.estimated_cost)}</span></div><div class="row-line"><span>Advance:</span><span>${fmt(r.advance_paid)}</span></div>${r.final_cost ? `<div class="row-line" style="font-weight:bold"><span>Balance:</span><span>${fmt(Math.max(0,r.final_cost-r.advance_paid))}</span></div>` : ''}<hr><div class="center">Keep for collection</div><div style="height:15px"></div>`;
+  document.getElementById('receipt').innerHTML = `<div class="center">${cfg.shop_logo ? `<img src="${cfg.shop_logo}" class="receipt-logo" alt="">` : ''}<div style="font-size:14px;font-weight:bold">${esc(cfg.shop_name)}</div><div>${esc(cfg.shop_phone)}</div></div><hr><div class="center" style="font-weight:bold">${del?'REPAIR BILL':'REPAIR SLIP'}</div><hr>${L('Job:',esc(r.job_no))}${L('Date:',esc((del?r.delivered_at:r.received_at)||''))}${c?L('Customer:',esc(c.name)):''}${c&&c.phone?L('Phone:',esc(c.phone)):''}${L('Model:',esc(((r.device_brand||'')+' '+(r.device_model||'')).trim()))}${r.imei?L('IMEI:',esc(r.imei)):''}<div><b>Repair:</b> ${esc(r.issue)}</div><hr>${L(del?'Price:':'Estimate:',fmt(price))}${L('Paid:',fmt(paid))}${(del||bal>0)?`<div class="row-line" style="font-weight:bold"><span>Balance:</span><span>${fmt(bal)}</span></div>`:''}<hr><div class="center">${del?'Thank you!':'Keep for collection'}</div><div style="height:15px"></div>`;
   setTimeout(()=>window.print(),120);
 }
 
