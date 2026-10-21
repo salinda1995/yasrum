@@ -47,6 +47,10 @@ input,select,textarea{font-family:inherit;color:inherit}
 .nav a:hover{background:var(--glass-hover);color:var(--text)}
 .nav a.active{background:var(--blue);color:#fff;font-weight:600;box-shadow:0 4px 14px rgba(10,132,255,.4)}
 .nav a .nav-icon{font-size:15px;width:20px;text-align:center}
+.kbd{display:inline-block;font:600 10.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:3px 6px;border-radius:5px;border:1px solid var(--glass-border);background:var(--glass-hover);color:var(--text-2);vertical-align:middle;margin-left:4px;white-space:nowrap}
+.nav a .nav-kbd{margin-left:auto;font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;opacity:.6}
+.nav a.active .nav-kbd{opacity:.85}
+@media (hover:none),(max-width:768px){.kbd,.nav-kbd,.kh{display:none !important}}
 .sidebar-foot{border-top:1px solid var(--separator);padding-top:10px;margin-top:8px}
 .user-card{display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:var(--radius-md);background:var(--glass-hover);margin-bottom:7px}
 .avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--purple));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px;flex-shrink:0;box-shadow:0 4px 12px rgba(10,132,255,.35);overflow:hidden}
@@ -524,6 +528,7 @@ body.sidebar-hidden .content{padding-left:54px}
       <p class="sub muted" id="login-selected-user">Enter password</p>
       <input id="login-user" type="hidden">
       <input id="login-pass" class="ios-input" type="password" placeholder="Password" autocomplete="current-password">
+      <label class="small muted" style="display:flex;align-items:center;gap:8px;margin:10px 0 0 4px;cursor:pointer;text-align:left"><input type="checkbox" id="login-remember" style="width:auto"> Remember me on this device</label>
       <div id="login-error" class="hidden small danger-c" style="margin-top:6px;text-align:left;padding-left:4px"></div>
       <button class="ios-pill blue full" onclick="doLogin()">Sign In</button>
       <button class="ios-pill ghost full" style="margin-top:8px" onclick="backToUserList()">← Back</button>
@@ -557,6 +562,7 @@ body.sidebar-hidden .content{padding-left:54px}
         </div>
       </div>
       <button class="switch-btn" onclick="showSwitchAccount()">🔄 <span>Switch Account</span></button>
+      <button class="ios-btn" onclick="showShortcutsHelp()">⌨️ <span>Shortcuts</span> <span class="kbd">F1</span></button>
       <button class="ios-btn" onclick="toggleTheme()">🌗 <span>Theme</span></button>
       <button class="ios-btn danger" onclick="doLogout()">🚪 <span>Logout</span></button>
     </div>
@@ -1273,6 +1279,327 @@ function migrateDB() {
 }
 
 function nextId(key) { return DB.ids[key]++; }
+
+/* ═══════════════════════════════════════════════════════════════
+   PRICE BATCHES (accessories) — same item can hold stock bought at
+   different cost / sale prices. a.qty / a.cost_price / a.sale_price are
+   kept in sync (total qty + latest batch price) for the rest of the app.
+   ═══════════════════════════════════════════════════════════════ */
+function accRaw(a) { let b = a.batches; if (b && !Array.isArray(b) && typeof b === 'object') b = Object.values(b); return Array.isArray(b) ? b.filter(Boolean) : []; }
+function accBatchList(a) { const r = accRaw(a); return r.length ? r : [{ id:1, cost:Number(a.cost_price)||0, price:Number(a.sale_price)||0, qty:Number(a.qty)||0, added_at:a.created_at||'' }]; }
+function accEnsureBatches(a) { if (!Array.isArray(a.batches) || !a.batches.length) a.batches = accBatchList(a).map(b => ({ id:b.id, cost:b.cost, price:b.price, qty:b.qty, added_at:b.added_at })); return a.batches; }
+function accNewBatchId(a) { const ids = accRaw(a).map(b => Number(b.id)||0); const n = Math.max(Number(a.batch_seq)||0, ...ids, 0) + 1; a.batch_seq = n; return n; }
+function accSync(a) {
+  const bs = accEnsureBatches(a);
+  let keep = bs.filter(b => (Number(b.qty)||0) > 0);
+  if (!keep.length) keep = [bs[bs.length-1]];
+  a.batches = keep;
+  a.qty = keep.reduce((s,b) => s + (Number(b.qty)||0), 0);
+  const last = keep.reduce((m,b) => (Number(b.id)||0) > (Number(m.id)||0) ? b : m, keep[0]);
+  a.cost_price = Number(last.cost)||0; a.sale_price = Number(last.price)||0;
+}
+function accAddStock(a, qty, cost, price) {
+  const bs = accEnsureBatches(a); cost = Number(cost)||0; price = Number(price)||0; qty = Number(qty)||0;
+  const same = bs.find(b => (Number(b.qty)||0) > 0 && (Number(b.cost)||0) === cost && (Number(b.price)||0) === price);
+  if (same) same.qty = (Number(same.qty)||0) + qty;
+  else bs.push({ id: accNewBatchId(a), cost, price, qty, added_at: now() });
+  accSync(a);
+  return !same;
+}
+function accRemoveStock(a, n, batchId) {
+  const bs = accEnsureBatches(a); n = Number(n)||0;
+  const take = b => { const t = Math.min(n, Number(b.qty)||0); b.qty = (Number(b.qty)||0) - t; n -= t; };
+  if (batchId !== null && batchId !== undefined && batchId !== '') { const b = bs.find(x => String(x.id) === String(batchId)); if (b) take(b); }
+  for (const b of bs) { if (n <= 0) break; take(b); }
+  accSync(a);
+}
+function accRestock(a, si, qty) {
+  const bs = accEnsureBatches(a); qty = Number(qty)||0;
+  let b = (si.batch_id !== null && si.batch_id !== undefined) ? bs.find(x => x.id === si.batch_id) : null;
+  if (!b) { const c = Number(si.cost)||0, p = Number(si.price)||0; b = bs.find(x => (Number(x.cost)||0) === c && (Number(x.price)||0) === p); }
+  if (b) b.qty = (Number(b.qty)||0) + qty;
+  else bs.push({ id: accNewBatchId(a), cost: Number(si.cost)||0, price: Number(si.price)||0, qty, added_at: now() });
+  accSync(a);
+}
+function accStockCost(a) { return accBatchList(a).reduce((s,b) => s + (Number(b.cost)||0) * (Number(b.qty)||0), 0); }
+function accStockSale(a) { return accBatchList(a).reduce((s,b) => s + (Number(b.price)||0) * (Number(b.qty)||0), 0); }
+function accLive(a) { return accBatchList(a).filter(b => (Number(b.qty)||0) > 0); }
+function accPriceLines(a, f) {
+  const bs = accLive(a);
+  if (!bs.length) return fmtInt(f === 'cost' ? a.cost_price : a.sale_price);
+  const key = f === 'cost' ? 'cost' : 'price', m = {};
+  bs.forEach(b => { const v = Number(b[key])||0; m[v] = (m[v]||0) + (Number(b.qty)||0); });
+  const e = Object.entries(m).map(([v,n]) => ({ v:Number(v), n })).sort((x,y) => x.v - y.v);
+  if (e.length === 1) return fmtInt(e[0].v);
+  return e.map(x => `<div class="small" style="white-space:nowrap">${x.n} × ${fmtInt(x.v)}</div>`).join('');
+}
+function accBatchChips(a) { const bs = accLive(a); if (bs.length < 2) return ''; return ` · <span class="warn strong">${bs.map(b => `${b.qty} × ${fmtInt(b.price)}`).join(' | ')}</span>`; }
+function accPriceHint(accId, costEl, priceEl, hintEl) {
+  const a = DB.accessories.find(x => x.id === accId), h = document.getElementById(hintEl); if (!a || !h) return;
+  const c = Number(document.getElementById(costEl)?.value||0), p = Number(document.getElementById(priceEl)?.value||0);
+  const live = accLive(a), same = live.find(b => (Number(b.cost)||0) === c && (Number(b.price)||0) === p);
+  h.innerHTML = same ? `<span class="success small">✓ Same price as an existing batch (${same.qty} in stock) — quantity is added to it.</span>`
+    : (live.length ? `<span class="warn small">⚠ Different price — a <b>new price batch</b> will be created. In stock now: ${live.map(b => `${b.qty} × ${fmtInt(b.price)}`).join(' | ')}</span>` : '<span class="muted small">No stock right now — these prices will be used.</span>');
+}
+
+/* ── phones: price groups (each unit already has its own cost/sale) ── */
+function phoneKeyGroups(pid, f) {
+  const m = {};
+  DB.stock_units.filter(u => u.product_id === pid && u.status === 'in_stock').forEach(u => { const v = Number(f === 'cost' ? u.cost_price : u.sale_price)||0; m[v] = (m[v]||0) + 1; });
+  return Object.entries(m).map(([v,n]) => ({ v:Number(v), n })).sort((a,b) => a.v - b.v);
+}
+function prodPriceLines(p, f) {
+  const g = phoneKeyGroups(p.id, f);
+  if (!g.length) return fmtInt(f === 'cost' ? p.cost_price : p.sale_price);
+  if (g.length === 1) return fmtInt(g[0].v);
+  return g.map(x => `<div class="small" style="white-space:nowrap">${x.n} × ${fmtInt(x.v)}</div>`).join('');
+}
+function auHint() {
+  const sel = document.getElementById('nu-product'), h = document.getElementById('nu-hint'); if (!sel || !h) return;
+  const p = DB.products.find(x => x.id === Number(sel.value)); if (!p) { h.innerHTML = ''; return; }
+  const c = Number(document.getElementById('nu-cost').value||0), s = Number(document.getElementById('nu-price').value||0);
+  const gs = phoneKeyGroups(p.id, 'sale');
+  const diff = (c !== (Number(p.cost_price)||0)) || (s !== (Number(p.sale_price)||0));
+  h.innerHTML = (diff ? `<div class="warn small">⚠ Differs from the product price (cost ${fmtInt(p.cost_price)} / sale ${fmtInt(p.sale_price)}). This unit keeps its own price.</div>` : '')
+    + (gs.length ? `<div class="muted small">In stock now: ${gs.map(x => `${x.n} × ${fmtInt(x.v)}`).join(' | ')}</div>` : '<div class="muted small">No units in stock for this product.</div>');
+}
+function auFillPrices() {
+  const sel = document.getElementById('nu-product'); if (!sel) return;
+  const p = DB.products.find(x => x.id === Number(sel.value)); if (!p) return;
+  document.getElementById('nu-cost').value = p.cost_price || 0; document.getElementById('nu-price').value = p.sale_price || 0; auHint();
+}
+function showEditUnitPrice(id) {
+  if (!(currentUser.role==='admin'||currentUser.role==='manager')){ toast('Access denied','error'); return; }
+  const u = DB.stock_units.find(x => x.id === id); if (!u) return;
+  const p = DB.products.find(x => x.id === u.product_id) || {};
+  openModal(`Edit price — ${[p.brand,p.model,p.storage].filter(Boolean).join(' ')}`, `<div class="form-grid"><div class="muted small">IMEI: ${esc(u.imei||'-')}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Cost', `<input id="eu-cost" class="ios-input" type="number" step="0.01" value="${Number(u.cost_price)||0}">`)}${field('Sale', `<input id="eu-price" class="ios-input" type="number" step="0.01" value="${Number(u.sale_price)||0}">`)}</div></div>`, () => {
+    u.cost_price = Number(document.getElementById('eu-cost').value||0); u.sale_price = Number(document.getElementById('eu-price').value||0);
+    save(); toast('Price updated','success'); renderPhoneStockBody();
+  });
+}
+function showAddUnitForProduct(preselectedProductId) {
+  if (!(currentUser.role==='admin'||currentUser.role==='manager')){ toast('Access denied','error'); return; }
+  if (!DB.products.length){ toast('Add product first','warn'); return; }
+  const opts = DB.products.map(p => `<option value="${p.id}" ${Number(preselectedProductId)===Number(p.id)?'selected':''}>${esc(p.code)} · ${esc(p.brand)} ${esc(p.model)} ${esc(p.storage||'')}</option>`).join('');
+  const p0 = DB.products.find(p => Number(p.id) === Number(preselectedProductId)) || DB.products[0];
+  openModal('Add Stock Unit', `<div class="form-grid">${field('Product', `<select id="nu-product" class="ios-input" onchange="auFillPrices()">${opts}</select>`, true)}${field('IMEI', '<input id="nu-imei" class="ios-input" placeholder="15-digit IMEI">')}${field('Barcode', '<input id="nu-barcode" class="ios-input" placeholder="Scan or type barcode" autofocus>', false, '🏷️ Optional')}${field('Condition', '<select id="nu-cond" class="ios-input"><option value="new">New</option><option value="used">Used</option></select>')}${field('Warranty (months)', '<input id="nu-warranty" class="ios-input" type="number" value="12" min="0">')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Cost (this unit)', `<input id="nu-cost" class="ios-input" type="number" step="0.01" value="${Number(p0.cost_price)||0}" oninput="auHint()">`)}${field('Sale price (this unit)', `<input id="nu-price" class="ios-input" type="number" step="0.01" value="${Number(p0.sale_price)||0}" oninput="auHint()">`)}</div><div id="nu-hint"></div></div>`, () => {
+    const pid = Number(document.getElementById('nu-product').value); const p = DB.products.find(x => x.id === pid); if (!p) return false;
+    const imei = document.getElementById('nu-imei').value.trim(); const barcode = document.getElementById('nu-barcode').value.trim();
+    if (imei && DB.stock_units.find(u => u.imei === imei)){ toast('IMEI exists','error'); return false; }
+    if (barcode && DB.stock_units.find(u => u.barcode === barcode)){ toast('Barcode exists','error'); return false; }
+    const cRaw = document.getElementById('nu-cost').value, sRaw = document.getElementById('nu-price').value;
+    DB.stock_units.push({ id:nextId('stock_units'), product_id:pid, imei:imei||null, barcode:barcode||'', condition:document.getElementById('nu-cond').value, status:'in_stock', cost_price: cRaw === '' ? (p.cost_price||0) : Number(cRaw), sale_price: sRaw === '' ? (p.sale_price||0) : Number(sRaw), warranty_months:Number(document.getElementById('nu-warranty').value||0), added_at:now(), sold_at:null });
+    save(); toast('Unit added','success'); renderPhoneStockBody();
+  });
+  auHint();
+}
+
+/* ── accessory stock: add / adjust / batches ── */
+function useExistingAccessory(id) {
+  const a = DB.accessories.find(x => Number(x.id) === Number(id)); if (!a) return;
+  const live = accLive(a), cur = live[live.length-1] || accBatchList(a).slice(-1)[0];
+  openModal(`Add stock — ${a.name}`, `<div class="form-grid"><div class="field-hint">“${esc(a.name)}” already exists · current qty <b>${a.qty||0}</b>${accBatchChips(a)}</div>${field('Quantity to add', '<input id="us-qty" class="ios-input" type="number" min="1" step="1" value="1" autofocus>', true)}<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Cost (new stock)', `<input id="us-cost" class="ios-input" type="number" step="0.01" value="${Number(cur.cost)||0}" oninput="accPriceHint(${a.id},'us-cost','us-price','us-hint')">`)}${field('Sale (new stock)', `<input id="us-price" class="ios-input" type="number" step="0.01" value="${Number(cur.price)||0}" oninput="accPriceHint(${a.id},'us-cost','us-price','us-hint')">`)}</div><div id="us-hint"></div></div>`, () => {
+    const n = Math.floor(Number(document.getElementById('us-qty').value));
+    if (!Number.isFinite(n) || n <= 0) { toast('Enter a quantity','error'); return false; }
+    const c = Number(document.getElementById('us-cost').value||0), p = Number(document.getElementById('us-price').value||0);
+    const isNew = accAddStock(a, n, c, p);
+    save(); renderAccessoryBody();
+    toast(isNew && accLive(a).length > 1 ? `Added ${n} — new price batch created` : `Added ${n} to ${a.name}`, 'success', 4000);
+  }, 'Add Stock');
+  accPriceHint(a.id, 'us-cost', 'us-price', 'us-hint');
+}
+function showAddAccessory(id) {
+  if (!(currentUser.role==='admin'||currentUser.role==='manager')){ toast('Access denied','error'); return; }
+  const a = id ? DB.accessories.find(x=>x.id===id) : null;
+  const cats = getAllCategories();
+  const pc = a ? (a.code||makeAccessoryCode(a.id)) : makeAccessoryCode(DB.ids.accessories);
+  const existing = DB.accessories.filter(x => !a || Number(x.id)!==Number(a.id)).slice().sort((x,y)=>(x.name||'').localeCompare(y.name||''));
+  const existingOptions = existing.map(x=>`<option value="${esc(x.name)}"></option>`).join('');
+  const live = a ? accLive(a) : [];
+  const multi = live.length > 1;
+  const cur = a ? (live[live.length-1] || accBatchList(a).slice(-1)[0]) : null;
+  const priceHTML = multi
+    ? `<div class="credit-notice" style="font-size:12px">💲 This item has <b>${live.length} price batches</b> (${live.map(b => `${b.qty} × ${fmtInt(b.price)}`).join(' | ')}). Use <b>Prices</b> to change a batch price and <b>Qty</b> to add stock at a new price.</div>`
+    : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Cost', `<input id="na-cost" class="ios-input" type="number" step="0.01" placeholder="0" value="${cur ? cur.cost : ''}">`)}${field('Sale', `<input id="na-price" class="ios-input" type="number" step="0.01" placeholder="0" value="${cur ? cur.price : ''}">`)}</div>`;
+  const qtyHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${multi ? field('Total quantity', `<input class="ios-input" value="${a.qty||0}" disabled>`) : field('Quantity', `<input id="na-qty" class="ios-input" type="number" placeholder="0" value="${cur ? cur.qty : 0}">`)}${field('Low stock', `<input id="na-low" class="ios-input" type="number" value="${a?.low_stock_threshold ?? 2}">`)}</div>`;
+  openModal(a?`Edit — ${a.code}`:'Add Stock Item', `<div class="form-grid"><div class="field-hint">🔖 Code: <b style="color:var(--purple)">${esc(pc)}</b></div>${field('Item name', `<input id="na-name" class="ios-input" list="acc-existing-names" oninput="showExistingAccessoryMatches()" placeholder="iPhone 15 Tempered Glass" value="${esc(a?.name||'')}" autofocus><datalist id="acc-existing-names">${existingOptions}</datalist>`, true)}<div id="na-existing-items" class="card pad" style="margin-top:-4px"><span class="muted small">Start typing to find existing stock items.</span></div>${field('Barcode', `<input id="na-barcode" class="ios-input" placeholder="Auto-generated if empty" value="${esc(a?.barcode||'')}">`, false, '🏷️ Leave empty = auto barcode')}${field('Category', `<input id="na-cat" class="ios-input" list="acc-cat-suggest" placeholder="Type or pick" value="${esc(a?.category||'')}"><datalist id="acc-cat-suggest">${cats.map(c=>`<option value="${esc(c)}"></option>`).join('')}</datalist>`)}${priceHTML}${field('Warranty (months)', `<input id="na-warranty" class="ios-input" type="number" min="0" placeholder="0" value="${a?.warranty_months ?? 0}">`)}${qtyHTML}</div>`, () => {
+    const name = document.getElementById('na-name').value.trim();
+    if (!name){ toast('Name required','error'); return false; }
+    if (!a) {
+      const key = normalizeAccessoryName(name);
+      const dup = DB.accessories.find(x => normalizeAccessoryName(x.name) === key);
+      if (dup) {
+        toast(`Already added: ${dup.name} (${dup.code}), Qty: ${Number(dup.qty||0)}`, 'error', 5000);
+        const addMore = confirm(`“${dup.name}” already exists (Qty: ${Number(dup.qty||0)}).\n\nDo you want to add quantity to this existing item instead?`);
+        if (addMore) { useExistingAccessory(dup.id); }
+        return false;
+      }
+    }
+    const barcode = document.getElementById('na-barcode').value.trim();
+    if (barcode) { const dup = DB.accessories.find(x => x.barcode === barcode && x.id !== id); if (dup) { toast('Barcode used by ' + dup.code, 'error', 4000); return false; } }
+    const data = { name, barcode: barcode || makeBarcode(2, a ? a.id : DB.ids.accessories), category:document.getElementById('na-cat').value.trim(), warranty_months:Number(document.getElementById('na-warranty').value||0), low_stock_threshold:Number(document.getElementById('na-low').value||2) };
+    if (!multi) { data.cost_price = Number(document.getElementById('na-cost').value||0); data.sale_price = Number(document.getElementById('na-price').value||0); data.qty = Number(document.getElementById('na-qty').value||0); }
+    if (a) {
+      Object.assign(a, data);
+      if (!multi) { const bs = accEnsureBatches(a); const b = bs.filter(x => (Number(x.qty)||0) > 0).slice(-1)[0] || bs[bs.length-1]; b.cost = data.cost_price; b.price = data.sale_price; b.qty = data.qty; accSync(a); }
+      toast('Updated','success');
+    } else {
+      const nid = nextId('accessories');
+      const item = { id:nid, code:makeAccessoryCode(nid), ...data, batches:[{ id:1, cost:data.cost_price, price:data.sale_price, qty:data.qty, added_at:now() }], batch_seq:1, created_at:now() };
+      DB.accessories.push(item); accSync(item);
+      toast(`Added — ${makeAccessoryCode(nid)}`,'success');
+    }
+    save(); renderAccessoryBody();
+  });
+  if (a) showExistingAccessoryMatches();
+}
+let accAdjustId = null;
+function adjustAccessoryQty(id) {
+  const a = DB.accessories.find(x=>x.id===id); if (!a) return;
+  accAdjustId = id;
+  const live = accLive(a), cur = live[live.length-1] || accBatchList(a).slice(-1)[0];
+  const fromSel = live.length > 1 ? field('Remove from', `<select id="aq-batch" class="ios-input"><option value="">Oldest stock first (auto)</option>${live.map(b => `<option value="${b.id}">${b.qty} × sale ${fmtInt(b.price)} (cost ${fmtInt(b.cost)})</option>`).join('')}</select>`) : '';
+  openModal(`Adjust Qty — ${a.name}`, `<div class="form-grid">${field('Current qty', `<input class="ios-input" value="${a.qty||0}" disabled>`)}${accBatchChips(a) ? `<div class="field-hint">Price batches: ${accBatchChips(a).replace(/^ · /,'')}</div>` : ''}${field('Add / Remove', '<input id="aq-add" class="ios-input" type="number" placeholder="5 or -2" value="0" oninput="toggleAdjustNoteField()" autofocus>', true, 'Positive=add, negative=remove')}<div id="aq-add-wrap" style="display:none"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Cost (new stock)', `<input id="aq-cost" class="ios-input" type="number" step="0.01" value="${Number(cur.cost)||0}" oninput="accPriceHint(${a.id},'aq-cost','aq-price','aq-hint')">`)}${field('Sale (new stock)', `<input id="aq-price" class="ios-input" type="number" step="0.01" value="${Number(cur.price)||0}" oninput="accPriceHint(${a.id},'aq-cost','aq-price','aq-hint')">`)}</div><div id="aq-hint"></div></div><div id="aq-note-wrap" style="display:none"><div class="credit-notice">⚠️ Note required</div>${field('Reason', '<input id="aq-note" class="ios-input" placeholder="Damaged, Lost">', true)}${fromSel}</div></div>`, () => {
+    const delta = Number(document.getElementById('aq-add').value||0);
+    if (!delta) { toast('Enter number','error'); return false; }
+    const note = (document.getElementById('aq-note')?.value || '').trim();
+    if (delta < 0 && !note) { toast('Note required','error',3500); return false; }
+    if (delta < 0 && Math.abs(delta) > (a.qty||0)) { toast('Exceeds stock','error',3500); return false; }
+    if (delta < 0) {
+      DB.stock_adjustments.push({ id: nextId('stock_adjustments'), accessory_id: a.id, item_code: a.code || '', description: a.name, qty_removed: Math.abs(delta), qty_before: a.qty||0, qty_after: Math.max(0, (a.qty||0) + delta), note, created_at: now(), user_id: currentUser?.id || null });
+      accRemoveStock(a, Math.abs(delta), document.getElementById('aq-batch')?.value || '');
+    } else {
+      accAddStock(a, delta, Number(document.getElementById('aq-cost').value||0), Number(document.getElementById('aq-price').value||0));
+    }
+    save(); toast(delta < 0 ? `Removed ${Math.abs(delta)}` : `Added ${delta}`, delta < 0 ? 'warn' : 'success'); renderAccessoryBody();
+  });
+}
+function toggleAdjustNoteField() {
+  const i = document.getElementById('aq-add'); if (!i) return;
+  const v = Number(i.value || 0);
+  const nw = document.getElementById('aq-note-wrap'), aw = document.getElementById('aq-add-wrap');
+  if (nw) nw.style.display = v < 0 ? 'block' : 'none';
+  if (aw) { aw.style.display = v > 0 ? 'block' : 'none'; if (v > 0 && accAdjustId) accPriceHint(accAdjustId, 'aq-cost', 'aq-price', 'aq-hint'); }
+}
+function showAccBatches(id) {
+  const a = DB.accessories.find(x => x.id === id); if (!a) return;
+  const cm = currentUser.role === 'admin' || currentUser.role === 'manager', cv = canSeeCost();
+  const bs = accLive(a);
+  const rows = bs.length ? bs.map(b => `<tr><td class="muted small">${esc((b.added_at||'').slice(0,10)||'—')}</td>${cv?`<td>${fmtInt(b.cost)}</td>`:''}<td class="primary-c strong">${fmtInt(b.price)}</td><td class="strong">${Number(b.qty)||0}</td>${cm?`<td><button class="ios-pill sm" onclick="editAccBatch(${a.id},${b.id})">Edit price</button></td>`:''}</tr>`).join('') : `<tr><td colspan="5" class="muted center">No stock</td></tr>`;
+  openModal(`💲 Price batches — ${a.name}`, `<div class="muted small" style="margin-bottom:8px">Total in stock: <b>${a.qty||0}</b>. Stock bought at different prices is kept as separate batches; at sale time you choose which one to sell.</div><div style="overflow-x:auto"><div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Added</th>${cv?'<th>Cost</th>':''}<th>Sale</th><th>Qty</th>${cm?'<th></th>':''}</tr></thead><tbody>${rows}</tbody></table></div></div>`, () => {}, 'Close');
+}
+function editAccBatch(accId, batchId) {
+  if (!(currentUser.role==='admin'||currentUser.role==='manager')){ toast('Access denied','error'); return; }
+  const a = DB.accessories.find(x => x.id === accId); if (!a) return;
+  const b = accEnsureBatches(a).find(x => x.id === batchId); if (!b) return;
+  openModal(`Edit batch price — ${a.name}`, `<div class="form-grid"><div class="muted small">${Number(b.qty)||0} in this batch</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Cost', `<input id="eb-cost" class="ios-input" type="number" step="0.01" value="${Number(b.cost)||0}">`)}${field('Sale', `<input id="eb-price" class="ios-input" type="number" step="0.01" value="${Number(b.price)||0}">`)}</div></div>`, () => {
+    b.cost = Number(document.getElementById('eb-cost').value||0); b.price = Number(document.getElementById('eb-price').value||0);
+    const other = a.batches.find(x => x !== b && (Number(x.qty)||0) > 0 && (Number(x.cost)||0) === b.cost && (Number(x.price)||0) === b.price);
+    if (other) { other.qty = (Number(other.qty)||0) + (Number(b.qty)||0); b.qty = 0; }
+    accSync(a); save(); toast('Batch price updated','success'); renderAccessoryBody(); setTimeout(() => showAccBatches(accId), 50);
+  });
+}
+
+/* ═══ SALE: quantity popup (barcode scan) + batch choice ═══ */
+let qtyPopupOpenedAt = 0;
+function showQtyPopup(o) {
+  const opts = o.options, multi = opts.length > 1;
+  const optsHTML = multi
+    ? `<div style="display:grid;gap:8px;margin-bottom:12px">${opts.map((x,i) => `<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--separator);border-radius:var(--radius-md);background:var(--glass-hover);cursor:pointer"><input type="radio" name="qp-opt" value="${esc(String(x.key))}" ${i===0?'checked':''}><div style="flex:1;min-width:0"><div class="strong" style="font-size:15px">${esc(x.label)}</div>${x.sub?`<div class="muted small">${esc(x.sub)}</div>`:''}</div><div class="muted small">${x.avail} available</div></label>`).join('')}</div>`
+    : `<div class="muted small" style="margin-bottom:6px">${esc(opts[0].label)}${opts[0].sub?' · '+esc(opts[0].sub):''} · <b>${opts[0].avail}</b> available</div>`;
+  qtyPopupOpenedAt = Date.now(); window.__refocusSales = true;
+  openModal(o.title || 'Add to cart', `<div class="form-grid"><div class="strong" style="font-size:14px">${esc(o.name)}</div>${optsHTML}${field('How many to add?', '<input id="qp-qty" class="ios-input" type="number" inputmode="numeric" min="1" step="1" value="1" style="font-size:22px;font-weight:700;text-align:center">')}<div class="muted small center kh">Press <b>Enter</b> to add</div></div>`, () => {
+    const sel = multi ? document.querySelector('input[name="qp-opt"]:checked') : null;
+    const key = multi ? sel.value : String(opts[0].key);
+    const opt = opts.find(x => String(x.key) === key);
+    const qty = Math.floor(Number(document.getElementById('qp-qty').value));
+    if (!qty || qty < 1) { toast('Enter quantity','error'); return false; }
+    if (qty > opt.avail) { toast(`Only ${opt.avail} available`,'warn',3000); return false; }
+    o.onConfirm(opt.key, qty);
+  }, '➕ Add to Cart');
+  setTimeout(() => {
+    const q = document.getElementById('qp-qty'); if (!q) return;
+    q.focus(); q.select();
+    const h = e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); window.__noEnterUntil = Date.now() + 500; if (e.repeat || Date.now() - qtyPopupOpenedAt < 450) return; document.getElementById('modal-ok')?.click(); } };
+    q.addEventListener('keydown', h);
+    document.querySelectorAll('input[name="qp-opt"]').forEach(r => r.addEventListener('keydown', h));
+  }, 70);
+}
+function accSaleOptions(a) {
+  return accLive(a).map(b => {
+    const inCart = cart.filter(c => c.type === 'accessory' && c.accessory_id === a.id && c.batch_id === b.id).reduce((s,c) => s + c.qty, 0);
+    return { batch_id:b.id, cost:Number(b.cost)||0, price:Number(b.price)||0, avail:(Number(b.qty)||0) - inCart };
+  }).filter(o => o.avail > 0);
+}
+function promptAccessoryAdd(accId) {
+  const a = DB.accessories.find(x => x.id === accId); if (!a) return;
+  const o = accSaleOptions(a);
+  if (!o.length) { toast(`${a.name}: no more stock`,'warn',3000); return; }
+  showQtyPopup({ title:'Add to cart', name:a.name, options:o.map(x => ({ key:x.batch_id, label:`${fmtInt(x.price)} each`, sub: canSeeCost() ? `cost ${fmtInt(x.cost)}` : '', avail:x.avail })), onConfirm:(key, qty) => addAccessoryToCart(a.id, key, qty) });
+}
+function promptPhoneProductAdd(pid) {
+  const p = DB.products.find(x => x.id === pid); if (!p) return;
+  const free = DB.stock_units.filter(u => u.product_id === pid && u.status === 'in_stock' && !cart.some(c => c.type === 'phone' && c.unit_id === u.id));
+  if (!free.length) { toast('⚠️ No more stock for this product','warn',3000); return; }
+  const g = {};
+  free.forEach(u => { const k = (Number(u.sale_price)||0) + '|' + (Number(u.cost_price)||0); (g[k] = g[k] || { price:Number(u.sale_price)||0, cost:Number(u.cost_price)||0, units:[] }).units.push(u); });
+  const opts = Object.entries(g).map(([k,v]) => ({ key:k, label:`${fmtInt(v.price)} each`, sub: canSeeCost() ? `cost ${fmtInt(v.cost)}` : '', avail:v.units.length }));
+  showQtyPopup({ title:'Add phones to cart', name:[p.brand,p.model,p.storage,p.color].filter(Boolean).join(' '), options:opts, onConfirm:(k, qty) => { g[k].units.slice().sort((a,b) => a.id - b.id).slice(0, qty).forEach(u => addPhoneToCart(u.id)); } });
+}
+function addAccessoryToCart(accId, batchId, qty) {
+  const a = DB.accessories.find(x => x.id === accId); if (!a) return false;
+  qty = Math.max(1, Math.floor(Number(qty)||1));
+  const opts = accSaleOptions(a);
+  if (!opts.length) { toast('Not enough stock','warn'); return false; }
+  if (batchId === undefined || batchId === null) { if (opts.length > 1) { promptAccessoryAdd(accId); return false; } batchId = opts[0].batch_id; }
+  const b = opts.find(o => o.batch_id === batchId);
+  if (!b) { toast('Not enough stock','warn'); return false; }
+  if (qty > b.avail) { toast(`Only ${b.avail} available`,'warn'); return false; }
+  const ex = cart.find(c => c.type === 'accessory' && c.accessory_id === accId && c.batch_id === batchId);
+  if (ex) ex.qty += qty;
+  else cart.push({ type:'accessory', accessory_id:a.id, batch_id:batchId, code:a.code||'', barcode:a.barcode||'', desc:a.name, price:b.price, qty, cost:b.cost, warranty_months: Number(a.warranty_months) || 0 });
+  renderCart(); const inp = document.getElementById('sales-search-input'); if (inp) salesSearch(inp.value);
+  return true;
+}
+function cartQty(i, delta) {
+  const it = cart[i]; if (!it || it.type !== 'accessory') return;
+  const a = DB.accessories.find(x => x.id === it.accessory_id);
+  let max = 1;
+  if (a) { const b = accBatchList(a).find(x => x.id === it.batch_id); max = b ? (Number(b.qty)||0) : (a.qty||0); }
+  it.qty = Math.min(max, Math.max(1, it.qty + delta));
+  renderCart(); const inp = document.getElementById('sales-search-input'); if (inp) salesSearch(inp.value);
+}
+
+/* ═══ ITEM SALES HISTORY (stock views) → open the bill in Reports ═══ */
+function saleItemsFor(kind, id) {
+  const all = DB.sale_items;
+  if (kind === 'acc') { const a = DB.accessories.find(x => x.id === id); return all.filter(it => it.item_type === 'accessory' && (it.accessory_id === id || (!it.accessory_id && a && it.item_code && it.item_code === a.code))); }
+  if (kind === 'product') { const p = DB.products.find(x => x.id === id); return all.filter(it => it.item_type === 'phone' && (it.product_id === id || (!it.product_id && p && it.item_code && it.item_code === p.code))); }
+  const u = DB.stock_units.find(x => x.id === id);
+  return all.filter(it => it.stock_unit_id === id || (!it.stock_unit_id && u && u.imei && it.item_type === 'phone' && (it.description||'').includes(u.imei)));
+}
+function showItemSales(kind, id) {
+  let title = '';
+  if (kind === 'acc') { const a = DB.accessories.find(x => x.id === id); if (!a) return; title = a.name; }
+  else if (kind === 'product') { const p = DB.products.find(x => x.id === id); if (!p) return; title = [p.brand,p.model,p.storage,p.color].filter(Boolean).join(' '); }
+  else { const u = DB.stock_units.find(x => x.id === id); if (!u) return; const p = DB.products.find(x => x.id === u.product_id) || {}; title = [p.brand,p.model,p.storage].filter(Boolean).join(' ') + (u.imei ? ' · ' + u.imei : ''); }
+  const rows = saleItemsFor(kind, id).map(it => ({ it, s: DB.sales.find(x => x.id === it.sale_id) })).filter(r => r.s)
+    .sort((a,b) => (b.s.created_at||'').localeCompare(a.s.created_at||'') || b.s.id - a.s.id);
+  if (!rows.length) { toast('This item has not been sold yet','info',3000); return; }
+  const qtySum = rows.reduce((n,r) => n + (Number(r.it.qty)||0), 0), amtSum = rows.reduce((n,r) => n + (Number(r.it.qty)||0) * (Number(r.it.price)||0), 0);
+  const body = `<div class="muted small" style="margin-bottom:8px">Sold <b>${qtySum}</b> · Total <b>${fmtInt(amtSum)}</b> · ${rows.length} bill${rows.length!==1?'s':''} — tap a bill to open it in Reports</div><div style="overflow-x:auto"><div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Date &amp; time</th><th>Invoice</th><th>Customer</th><th>Qty</th><th>Price</th></tr></thead><tbody>${rows.map(({it,s}) => { const c = DB.customers.find(x => x.id === s.customer_id); const rt = getSaleReturnTotal(s.id); return `<tr style="cursor:pointer" onclick="openBillInReports(${s.id})"><td class="muted small" style="white-space:nowrap">${esc((s.created_at||'').slice(0,16).replace('T',' '))}</td><td class="primary-c strong small">${esc(s.invoice_no)}${rt>0?' <span class="danger-c">↩</span>':''}</td><td>${esc(c?.name||'Walk-in')}${kind==='product'&&it.description&&/IMEI/.test(it.description)?`<div class="muted small">${esc((it.description.split('IMEI')[1]||'').trim())}</div>`:''}</td><td>${it.qty}</td><td class="strong">${fmtInt(it.price)}</td></tr>`; }).join('')}</tbody></table></div></div>`;
+  openModal(`📜 Sales — ${title}`, body, () => {}, 'Close');
+}
+function openBillInReports(saleId) {
+  const s = DB.sales.find(x => x.id === saleId); if (!s) { toast('Bill not found','error'); return; }
+  if (!can('reports')) { toast('Access denied','error'); return; }
+  closeModal();
+  const d = (s.created_at||'').slice(0,10);
+  reportTab = 'invoices'; repRange = 'custom'; repFrom = d; repTo = d; reportQuery = s.invoice_no;
+  navigateTo('reports');
+  setTimeout(() => openBillFromSearch(saleId), 80);
+}
+
 function now() { const d = new Date(), p = n => String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
 function today() { return now().slice(0,10); }
 function fmt(n){ return (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -1419,17 +1746,30 @@ function doLogin() {
   const user = DB.users.find(x => x.username.toLowerCase() === u);
   if (!user || user.password !== hashPassword(p)) { err.textContent = 'Invalid password'; err.classList.remove('hidden'); return; }
   if (!user.active) { err.textContent = 'Account disabled'; err.classList.remove('hidden'); return; }
+  completeLogin(user, !!document.getElementById('login-remember')?.checked);
+}
+function completeLogin(user, remember) {
   currentUser = user; sessionStorage.setItem('pos_user_id', user.id);
+  try { if (remember === true) localStorage.setItem('pos_remember', JSON.stringify({ uid: user.id, ph: user.password })); else if (remember === false) localStorage.removeItem('pos_remember'); } catch(e) {}
   document.getElementById('loading-screen').classList.add('hidden');
   document.getElementById('firebase-auth-screen').classList.add('hidden');
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app-layout').classList.remove('hidden');
   document.getElementById('login-pass').value = '';
+  const rc = document.getElementById('login-remember'); if (rc) rc.checked = false;
   updateUserBox(); buildNav(); buildMobileTabs();
   currentView = firstAllowedView(); render();
   toast(`Welcome, ${user.name}!`, 'success');
 }
-async function doLogout() { if (!confirm('Sign out of POS and Firebase?')) return; currentUser = null; sessionStorage.removeItem('pos_user_id'); document.getElementById('app-layout').classList.add('hidden'); document.getElementById('login-screen').classList.add('hidden'); document.getElementById('loading-screen').classList.remove('hidden'); document.getElementById('loading-screen').innerHTML = '<div class="spinner"></div><div>Signing out securely…</div>'; try { await fbAuth.signOut(); } catch(e) { console.error('Firebase sign out failed', e); showFirebaseAuth(); } }
+function tryRememberedLogin() {
+  try {
+    const r = JSON.parse(localStorage.getItem('pos_remember') || 'null'); if (!r) return false;
+    const u = DB.users.find(x => x.id === r.uid);
+    if (!u || !u.active || u.password !== r.ph) { localStorage.removeItem('pos_remember'); return false; }
+    completeLogin(u, null); return true;
+  } catch(e) { return false; }
+}
+async function doLogout() { if (!confirm('Sign out of POS and Firebase?')) return; try { localStorage.removeItem('pos_remember'); } catch(e) {} currentUser = null; sessionStorage.removeItem('pos_user_id'); document.getElementById('app-layout').classList.add('hidden'); document.getElementById('login-screen').classList.add('hidden'); document.getElementById('loading-screen').classList.remove('hidden'); document.getElementById('loading-screen').innerHTML = '<div class="spinner"></div><div>Signing out securely…</div>'; try { await fbAuth.signOut(); } catch(e) { console.error('Firebase sign out failed', e); showFirebaseAuth(); } }
 function showSwitchAccount() { closeMobileSidebar(); const users = DB.users.filter(u => u.active); const rows = users.map(u => { const isMe = currentUser && u.id === currentUser.id; const av = u.photo ? `<img src="${u.photo}" style="width:100%;height:100%;object-fit:cover">` : esc((u.name||u.username).charAt(0).toUpperCase()); return `<div class="user-select-row ${isMe?'current':''}" ${isMe?'':`onclick="promptSwitchTo(${u.id})"`}><div class="user-select-avatar">${av}</div><div class="user-select-info"><div class="strong" style="font-size:13px">${esc(u.name)}</div><div class="muted small">@${esc(u.username)} · ${esc(u.role)}${isMe?' · <span class="success">current</span>':''}</div></div>${isMe ? '<span class="badge badge-done">Active</span>' : '<button class="ios-pill blue sm">Switch</button>'}</div>`; }).join(''); openModal('Switch Account', `<div class="form-grid" style="gap:8px">${rows}</div>`, () => {}, 'Close'); }
 function promptSwitchTo(userId) { const u = DB.users.find(x=>x.id===userId); if (!u) return; openModal(`Switch to ${u.name}`, `<div class="form-grid">${field('Password', `<input id="switch-pass" class="ios-input" type="password" placeholder="Password">`, true)}</div>`, () => { const pass = document.getElementById('switch-pass').value; if (hashPassword(pass) !== u.password) { toast('Wrong password','error'); return false; } currentUser = u; sessionStorage.setItem('pos_user_id', u.id); updateUserBox(); buildNav(); buildMobileTabs(); currentView = firstAllowedView(); render(); toast(`Switched to ${u.name}`,'success'); }, 'Switch'); }
 function updateUserBox() { if (!currentUser) return; document.getElementById('user-name-display').textContent = currentUser.name; document.getElementById('user-role-display').textContent = currentUser.role; const av = document.getElementById('user-avatar'); if (currentUser.photo) av.innerHTML = `<img src="${currentUser.photo}" alt="">`; else av.textContent = (currentUser.name || currentUser.username).charAt(0).toUpperCase(); }
@@ -1444,7 +1784,7 @@ function openModal(title, bodyHTML, onOk, okLabel='Save') {
   document.getElementById('modal-ok').onclick = () => { const ok = onOk(); if (ok !== false) closeModal(); };
   setTimeout(()=>{ const f = root.querySelector('#modal-body input:not([type=hidden]), #modal-body select'); if (f) { f.focus(); try { if (f.select && f.type !== 'date') f.select(); } catch(_) {} } }, 50);
 }
-function closeModal(){ document.getElementById('modal-root').innerHTML = ''; currentReturnSaleId = null; tempOrderItems = []; currentOrderIdForDetail = null; }
+function closeModal(){ document.getElementById('modal-root').innerHTML = ''; currentReturnSaleId = null; tempOrderItems = []; currentOrderIdForDetail = null; if (window.__refocusSales) { window.__refocusSales = false; if (!isMobile()) setTimeout(() => { const i = document.getElementById('sales-search-input'); if (i) i.focus(); }, 40); } }
 function modalAsync(title, bodyHTML, okLabel='Confirm', opts={}) {
   return new Promise(resolve => {
     const root = document.getElementById('modal-root');
@@ -1484,7 +1824,7 @@ function importJSON() {
 /* ═══ VIEWS ═══ */
 const views = { dashboard:renderDashboard, sales:renderSales, reload:renderReload,  phonestock:renderPhoneStock, stock:renderStock, repairs:renderRepairs, shoprepair:renderShopRepair, customers:renderCustomers, orders:renderOrders, suppliers:renderSuppliers, staff:renderStaff, expenses:renderExpenses, cashclosing:renderCashClosing, reports:renderReports, billsearch:renderBillSearch, settings:renderSettings };
 let currentView = 'dashboard';
-function buildNav() { const nav = document.getElementById('nav'); const perms = ROLE_PERMS[currentUser.role]||[]; nav.innerHTML = perms.map(k => { const m = VIEW_META[k]; return `<a data-view="${k}" class="${k===currentView?'active':''}"><span class="nav-icon">${m.icon}</span><span>${m.label}</span></a>`; }).join(''); }
+function buildNav() { const nav = document.getElementById('nav'); const perms = ROLE_PERMS[currentUser.role]||[]; nav.innerHTML = perms.map((k,i) => { const m = VIEW_META[k]; return `<a data-view="${k}" title="${i<9?'Alt+'+(i+1):''}" class="${k===currentView?'active':''}"><span class="nav-icon">${m.icon}</span><span>${m.label}</span>${i<9?`<span class="nav-kbd">Alt+${i+1}</span>`:''}</a>`; }).join(''); }
 function buildMobileTabs() {
   const tabs = document.getElementById('mobile-tabs'); if (!tabs) return;
   const perms = ROLE_PERMS[currentUser.role]||[];
@@ -1574,6 +1914,7 @@ function clearSearch(id, oninput) { const el = document.getElementById(id); if (
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter' || e.shiftKey) return;
+  if (Date.now() < (window.__noEnterUntil || 0)) return;
   const tag = (e.target.tagName||'').toLowerCase();
   if (tag === 'textarea') return;
   if (e.target.id === 'ow-input') { e.preventDefault(); orderWizardNext(); return; }
@@ -1594,6 +1935,48 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (currentView === 'sales' && tag === 'input' && e.target.id !== 'sales-search-input') { e.preventDefault(); completeSale(); }
+});
+
+/* ═══ KEYBOARD SHORTCUTS ═══ */
+const SHORTCUTS = [
+  ['F1','Show this shortcut list'],
+  ['F2','Go to Sale and focus the scan / search box'],
+  ['F3','Focus the search box on this page'],
+  ['F4  or  Ctrl+Enter','Complete sale (open payment)'],
+  ['F6','Sale: switch Phones / Accessories'],
+  ['Alt+D','Sale: jump to Discount'],
+  ['Alt+C','Sale: clear cart'],
+  ['Alt+1 … Alt+9','Open menu item 1 – 9 (hover the menu to see numbers)'],
+  ['Esc','Close the open popup'],
+  ['Payment popup: Alt+1 … Alt+5','Cash / Credit / Card / Bank / QR'],
+  ['Payment popup: Enter','Next step / complete (after change shown)'],
+  ['After a sale: P  /  W  /  Enter','Print bill / WhatsApp bill / close']
+];
+function showShortcutsHelp() {
+  openModal('⌨️ Keyboard shortcuts', `<div style="overflow-x:auto"><table class="ios-table"><tbody>${SHORTCUTS.map(([k,d]) => `<tr><td style="white-space:nowrap"><b class="primary-c">${esc(k)}</b></td><td class="muted small">${esc(d)}</td></tr>`).join('')}</tbody></table></div>`, () => {}, 'Close');
+}
+document.addEventListener('keydown', e => {
+  if (!currentUser) return;
+  const root = document.getElementById('modal-root'), modalOpen = !!(root && root.children.length);
+  const k = e.key;
+  if (k === 'Escape') {
+    if (modalOpen && !root.querySelector('.modal-bg-danger') && !document.getElementById('scan-video')) { e.preventDefault(); closeModal(); }
+    return;
+  }
+  if (payState && document.getElementById('pay-inner') && e.altKey && /^Digit[1-5]$/.test(e.code)) { e.preventDefault(); payMethod(PAY_METHODS[Number(e.code.slice(5)) - 1][0]); return; }
+  if (k === 'F1') { e.preventDefault(); if (!modalOpen) showShortcutsHelp(); return; }
+  if (modalOpen) return;
+  const focusEl = el => { if (el) { el.focus(); try { el.select && el.select(); } catch(_) {} } };
+  if (k === 'F2') { e.preventDefault(); if (currentView !== 'sales') navigateTo('sales'); setTimeout(() => focusEl(document.getElementById('sales-search-input')), 60); return; }
+  if (k === 'F3') { e.preventDefault(); focusEl(document.querySelector('#sales-search-input, #pstock-search, #acc-search, #rep-search, .ios-search input')); return; }
+  if (currentView === 'sales' && (k === 'F4' || (k === 'Enter' && e.ctrlKey))) { e.preventDefault(); completeSale(); return; }
+  if (currentView === 'sales' && k === 'F6') { e.preventDefault(); const bs = [...document.querySelectorAll('#sales-seg button')]; if (bs.length) { const i = bs.findIndex(b => b.classList.contains('active')); bs[(i + 1) % bs.length].click(); focusEl(document.getElementById('sales-search-input')); } return; }
+  if (currentView === 'sales' && e.altKey && e.code === 'KeyD') { e.preventDefault(); focusEl(document.getElementById('discount')); return; }
+  if (currentView === 'sales' && e.altKey && e.code === 'KeyC') { e.preventDefault(); if (cart.length && confirm('Clear the cart?')) clearCart(); return; }
+  if (e.altKey && /^Digit[1-9]$/.test(e.code)) {
+    const perms = ROLE_PERMS[currentUser.role] || [], v = perms[Number(e.code.slice(5)) - 1];
+    if (v) { e.preventDefault(); navigateTo(v); }
+  }
 });
 
 /* ═══ CASH MOVEMENTS ═══ */
@@ -1793,11 +2176,11 @@ function dashOverviewBody() {
   const inStockUnits = DB.stock_units.filter(u=>u.status==='in_stock');
   const money = [
     ['📱 Phone Stock (Cost)', inStockUnits.reduce((a,u)=>a+(Number(u.cost_price)||0),0), 'var(--blue)'],
-    ['📦 Accessory Stock (Cost)', DB.accessories.reduce((a,x)=>a+(Number(x.cost_price)||0)*(Number(x.qty)||0),0), 'var(--teal)'],
+    ['📦 Accessory Stock (Cost)', DB.accessories.reduce((a,x)=>a+accStockCost(x),0), 'var(--teal)'],
     ['💳 Total Credit', getTotalCredit(), 'var(--orange)'],
     ['🏪 Shop Outstanding', DB.shops.reduce((a,s)=>a+calcShopOutstanding(s),0), 'var(--red)'],
   ];
-  if (vis) { money.splice(1,0,['📱 Phone Stock (Sale)', inStockUnits.reduce((a,u)=>a+(Number(u.sale_price)||0),0), 'var(--green)']); money.splice(3,0,['📦 Accessory Stock (Sale)', DB.accessories.reduce((a,x)=>a+(Number(x.sale_price)||0)*(Number(x.qty)||0),0), 'var(--green)']); }
+  if (vis) { money.splice(1,0,['📱 Phone Stock (Sale)', inStockUnits.reduce((a,u)=>a+(Number(u.sale_price)||0),0), 'var(--green)']); money.splice(3,0,['📦 Accessory Stock (Sale)', DB.accessories.reduce((a,x)=>a+accStockSale(x),0), 'var(--green)']); }
   const counts = [
     ['📱 Phones In Stock', inStockUnits.length, 'var(--blue)'],
     ['📦 Accessories Qty', DB.accessories.reduce((a,x)=>a+(x.qty||0),0), 'var(--teal)'],
@@ -1888,8 +2271,8 @@ function renderDashboard(root) {
   const accQty = DB.accessories.reduce((a,x)=>a+(x.qty||0),0);
   const phoneStockCost = DB.stock_units.filter(u => u.status === 'in_stock').reduce((a,u) => a + (Number(u.cost_price)||0), 0);
   const phoneStockSale = DB.stock_units.filter(u => u.status === 'in_stock').reduce((a,u) => a + (Number(u.sale_price)||0), 0);
-  const accessoryStockCost = DB.accessories.reduce((a,x) => a + (Number(x.cost_price)||0) * (Number(x.qty)||0), 0);
-  const accessoryStockSale = DB.accessories.reduce((a,x) => a + (Number(x.sale_price)||0) * (Number(x.qty)||0), 0);
+  const accessoryStockCost = DB.accessories.reduce((a,x) => a + accStockCost(x), 0);
+  const accessoryStockSale = DB.accessories.reduce((a,x) => a + accStockSale(x), 0);
   const totalCredit = getTotalCredit();
   const creditCount = DB.customers.filter(c=>(Number(c.balance)||0) > 0).length;
   const totalShopOutstanding = DB.shops.reduce((a,s) => a + calcShopOutstanding(s), 0);
@@ -1967,6 +2350,7 @@ function renderSales(root) {
             <div class="segmented" id="sales-seg" style="margin-bottom:10px;width:100%">
               <button class="${salesTab==='phones'?'active':''}" onclick="salesSetTab('phones',this)" style="flex:1">📱 Phones</button>
               <button class="${salesTab==='accessories'?'active':''}" onclick="salesSetTab('accessories',this)" style="flex:1">📦 Accessories</button>
+              <span class="kbd" style="align-self:center;margin:0 6px" title="Switch Phones / Accessories">F6</span>
             </div>
             <div style="display:flex;gap:8px;align-items:center"><div class="ios-search" style="max-width:none;flex:1"><input id="sales-search-input" placeholder="Type to search..." oninput="salesSearch(this.value)" autocomplete="off"><button class="clear" onclick="salesClearSearch()">✕</button></div><button type="button" class="ios-pill blue cam-btn" onclick="openScanner('sales-search-input','salesSearch')">📷</button></div>
           </div>
@@ -1979,9 +2363,9 @@ function renderSales(root) {
             </div>
             <div id="credit-extra-fields"></div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px">
-              ${field('Payment', `<select id="payment" class="ios-input" style="padding:8px 10px"><option value="cash">💵 Cash</option><option value="card">💳 Card</option><option value="bank">🏦 Bank</option><option value="qr">📱 QR</option></select>`)}
-              ${field('Discount', '<input id="discount" class="ios-input" placeholder="0" value="0" type="number" step="0.01" oninput="updateTotal()" style="padding:8px 10px">')}
-              ${field('Paid', '<input id="paid" class="ios-input" placeholder="blank=exact" type="number" step="0.01" style="padding:8px 10px" oninput="updateChangeDisplay();updateCreditPreview()">')}
+              <div style="display:none">${field('Payment', `<select id="payment" class="ios-input" style="padding:8px 10px"><option value="cash">💵 Cash</option><option value="card">💳 Card</option><option value="bank">🏦 Bank</option><option value="qr">📱 QR</option></select>`)}</div>
+              ${field('Discount', '<input id="discount" class="ios-input" placeholder="0" value="0" type="number" step="0.01" oninput="updateTotal()" style="padding:8px 10px">', false, '<span class="kbd" style="margin:0">Alt+D</span>')}
+              <div style="display:none">${field('Paid', '<input id="paid" class="ios-input" placeholder="blank=exact" type="number" step="0.01" style="padding:8px 10px" oninput="updateChangeDisplay();updateCreditPreview()">')}</div>
             </div>
             <div id="credit-preview" class="small" style="margin-top:6px;display:none"></div>
           </div>
@@ -1992,7 +2376,7 @@ function renderSales(root) {
           <div class="cart-footer">
             <div class="total-box"><div class="muted small" style="font-weight:700;letter-spacing:.06em">TOTAL</div><div class="total-val" id="total">0.00</div></div>
             <div class="change-box" id="change-box"><div class="change-label">💰 Change</div><div class="change-val" id="change-val">0</div></div>
-            <div class="row gap" style="margin-top:10px"><button class="ios-pill ghost" style="flex:1" onclick="clearCart()">Clear</button><button class="ios-pill green" style="flex:2" onclick="completeSale()" id="complete-btn">✓ Complete Sale</button></div>
+            <div class="row gap" style="margin-top:10px"><button class="ios-pill ghost" style="flex:1" onclick="clearCart()">Clear <span class="kbd">Alt+C</span></button><button class="ios-pill green" style="flex:2" onclick="completeSale()" id="complete-btn">✓ Complete Sale <span class="kbd" style="color:#fff;border-color:rgba(255,255,255,.5);background:rgba(255,255,255,.18)">F4</span></button></div>
           </div>
         </div>
       </div>
@@ -2173,7 +2557,7 @@ function updateChangeDisplay() {
   if (paid > total && total > 0) { val.textContent = fmtInt(paid - total); box.classList.add('show'); }
   else box.classList.remove('show');
 }
-function updateSalesSearchPlaceholder() { const inp = document.getElementById('sales-search-input'); if (!inp) return; inp.placeholder = salesTab === 'phones' ? '🔍 IMEI / code / brand / model / color...' : '🔍 Name / code / category / barcode...'; }
+function updateSalesSearchPlaceholder() { const inp = document.getElementById('sales-search-input'); if (!inp) return; inp.placeholder = (salesTab === 'phones' ? '🔍 IMEI / code / brand / model / color...' : '🔍 Name / code / category / barcode...') + (window.matchMedia('(hover:hover) and (min-width:769px)').matches ? '  [F2]' : ''); }
 function salesSetTab(t, btn) { salesTab = t; document.querySelectorAll('#sales-seg button').forEach(b => b.classList.remove('active')); if (btn) btn.classList.add('active'); updateSalesSearchPlaceholder(); const inp = document.getElementById('sales-search-input'); salesSearch(inp ? inp.value : ''); }
 function salesClearSearch() { const inp = document.getElementById('sales-search-input'); if (inp) inp.value = ''; salesSearchQ = ''; document.getElementById('search-results').innerHTML = '<p class="muted center pad small">Start typing to search items...</p>'; if (inp) inp.focus(); }
 function salesSearch(v) {
@@ -2181,9 +2565,15 @@ function salesSearch(v) {
   const res = document.getElementById('search-results'); if (!res) return;
   const q = v.trim().toLowerCase();
   if (!q) { res.innerHTML = '<p class="muted center pad small">Start typing to search items...</p>'; return; }
-  if (salesTab === 'accessories') { const bm = DB.accessories.find(a => (a.barcode||'').toLowerCase() === q); if (bm) { addAccessoryToCart(bm.id); const inp = document.getElementById('sales-search-input'); if (inp) inp.value = ''; res.innerHTML = '<p class="muted center pad small">✅ Barcode item added</p>'; return; } }
-  else { const bm = DB.stock_units.find(u => (u.barcode||'').toLowerCase() === q && u.status === 'in_stock'); if (bm) { addPhoneToCart(bm.id); const inp = document.getElementById('sales-search-input'); if (inp) inp.value = ''; res.innerHTML = '<p class="muted center pad small">✅ Barcode item added</p>'; return; } }
-  if (salesTab !== 'accessories') { const pm = DB.products.find(p => (p.barcode||'') === q); if (pm) { const un = DB.stock_units.find(u => u.product_id === pm.id && u.status === 'in_stock' && !cart.some(c => c.type==='phone' && c.unit_id === u.id)); const inp = document.getElementById('sales-search-input'); if (un) { addPhoneToCart(un.id); if (inp) inp.value = ''; res.innerHTML = '<p class="muted center pad small">✅ Barcode item added</p>'; } else res.innerHTML = '<p class="muted center pad small">⚠️ No more stock for this product</p>'; return; } }
+  { /* exact barcode scan: accessory -> qty popup, unit -> add, product -> qty popup */
+    const clearIn = () => { const inp = document.getElementById('sales-search-input'); if (inp) inp.value = ''; salesSearchQ = ''; };
+    const acc = DB.accessories.find(a => (a.barcode||'').toLowerCase() === q);
+    if (acc) { clearIn(); res.innerHTML = `<p class="muted center pad small">🏷️ ${esc(acc.name)} — choose quantity…</p>`; promptAccessoryAdd(acc.id); return; }
+    const un = DB.stock_units.find(u => (u.barcode||'').toLowerCase() === q && u.status === 'in_stock');
+    if (un) { clearIn(); addPhoneToCart(un.id); res.innerHTML = '<p class="muted center pad small">✅ Barcode item added</p>'; return; }
+    const pm = DB.products.find(p => (p.barcode||'').toLowerCase() === q);
+    if (pm) { clearIn(); res.innerHTML = `<p class="muted center pad small">🏷️ ${esc([pm.brand,pm.model,pm.storage].filter(Boolean).join(' '))} — choose quantity…</p>`; promptPhoneProductAdd(pm.id); return; }
+  }
   if (salesTab === 'phones') {
     const items = DB.stock_units.filter(u => u.status === 'in_stock').map(u => { const p = DB.products.find(x => x.id === u.product_id) || {}; return { unit_id: u.id, code: p.code || '', brand: p.brand || '', model: p.model || '', storage: p.storage || '', color: p.color || '', imei: u.imei || '', barcode: u.barcode || '', price: Number(u.sale_price) || 0, cost: Number(u.cost_price) || 0, warranty: u.warranty_months || 0 }; }).filter(u => (u.imei||'').toLowerCase().includes(q) || (u.code||'').toLowerCase().includes(q) || (u.brand||'').toLowerCase().includes(q) || (u.model||'').toLowerCase().includes(q) || (u.color||'').toLowerCase().includes(q) || (u.storage||'').toLowerCase().includes(q) || (u.barcode||'').toLowerCase().includes(q));
     if (!items.length) res.innerHTML = '<p class="muted center pad small">No matching phones</p>';
@@ -2191,7 +2581,7 @@ function salesSearch(v) {
   } else {
     const items = DB.accessories.filter(a => (a.qty||0) > 0).filter(a => (a.name||'').toLowerCase().includes(q) || (a.category||'').toLowerCase().includes(q) || (a.code||'').toLowerCase().includes(q) || (a.barcode||'').toLowerCase().includes(q));
     if (!items.length) res.innerHTML = '<p class="muted center pad small">No matching accessories</p>';
-    else res.innerHTML = items.slice(0,40).map(a => { const ic = cart.find(c => c.type==='accessory' && c.accessory_id === a.id); const cq = ic ? ic.qty : 0; return `<div class="result-card" onclick="addAccessoryToCart(${a.id})"><div class="item-info"><div class="row gap" style="margin-bottom:3px;flex-wrap:wrap">${codeChip(a.code,true,false,a.barcode)}<span class="strong">${esc(a.name)}</span>${warrantyChip(a.warranty_months)}</div><div class="muted small">${esc(a.category||'-')} · ${a.qty} in stock${cq?` · <span class="primary-c">${cq} in cart</span>`:''}</div></div><div class="item-actions"><span class="success strong">${fmtInt(a.sale_price)}</span><button class="ios-pill blue sm">+ Add</button></div></div>`; }).join('');
+    else res.innerHTML = items.slice(0,40).map(a => { const ic = cart.find(c => c.type==='accessory' && c.accessory_id === a.id); const cq = ic ? ic.qty : 0; return `<div class="result-card" onclick="addAccessoryToCart(${a.id})"><div class="item-info"><div class="row gap" style="margin-bottom:3px;flex-wrap:wrap">${codeChip(a.code,true,false,a.barcode)}<span class="strong">${esc(a.name)}</span>${warrantyChip(a.warranty_months)}</div><div class="muted small">${esc(a.category||'-')} · ${a.qty} in stock${accBatchChips(a)}${cq?` · <span class="primary-c">${cq} in cart</span>`:''}</div></div><div class="item-actions"><span class="success strong">${fmtInt(a.sale_price)}</span><button class="ios-pill blue sm">+ Add</button></div></div>`; }).join('');
   }
 }
 function addPhoneToCart(unitId) {
@@ -2201,13 +2591,6 @@ function addPhoneToCart(unitId) {
   let desc = `${p.brand||''} ${p.model||''} ${p.storage||''}`.trim();
   if (u.imei) desc += ` · IMEI ${u.imei}`;
   cart.push({ type:'phone', unit_id:u.id, product_id:u.product_id, code:p.code||'', barcode:u.barcode||'', desc, price:Number(u.sale_price)||0, qty:1, cost:Number(u.cost_price)||0, warranty_months: Number(u.warranty_months) || 0 });
-  renderCart(); const inp = document.getElementById('sales-search-input'); if (inp) salesSearch(inp.value);
-}
-function addAccessoryToCart(accId) {
-  const a = DB.accessories.find(x => x.id === accId); if (!a) return;
-  const ex = cart.find(c => c.type==='accessory' && c.accessory_id === accId);
-  if (ex) { if (ex.qty >= a.qty) { toast('Not enough stock','warn'); return; } ex.qty++; }
-  else cart.push({ type:'accessory', accessory_id:a.id, code:a.code||'', barcode:a.barcode||'', desc:a.name, price:Number(a.sale_price)||0, qty:1, cost:Number(a.cost_price)||0, warranty_months: Number(a.warranty_months) || 0 });
   renderCart(); const inp = document.getElementById('sales-search-input'); if (inp) salesSearch(inp.value);
 }
 function renderCart() {
@@ -2224,7 +2607,6 @@ function renderCart() {
   }).join('');
   updateTotal();
 }
-function cartQty(i, delta) { const it = cart[i]; if (!it || it.type !== 'accessory') return; const a = DB.accessories.find(x => x.id === it.accessory_id); const max = a ? a.qty : 1; it.qty = Math.min(max, Math.max(1, it.qty + delta)); renderCart(); const inp = document.getElementById('sales-search-input'); if (inp) salesSearch(inp.value); }
 function removeFromCart(i){ cart.splice(i,1); renderCart(); const inp = document.getElementById('sales-search-input'); if (inp) salesSearch(inp.value); }
 function clearCart() {
   cart=[]; renderCart();
@@ -2241,46 +2623,129 @@ function updateTotal() {
   const el = document.getElementById('total'); if (el) el.textContent = fmt(total);
   updateCreditPreview(); updateChangeDisplay();
 }
+/* ═══ PAYMENT POPUP (Complete Sale) ═══ */
+let payState = null;
+const PAY_METHODS = [['cash','💵 Cash'],['credit','🧾 Credit'],['card','💳 Card'],['bank','🏦 Bank'],['qr','📱 QR']];
+const PAY_CR_IDS = ['pay-cc-name','pay-cc-phone','pay-cc-idnum','pay-cc-address','pay-cc-paid'];
+function payMoney(n) { n = Number(n)||0; return Math.abs(n - Math.round(n)) < 0.005 ? fmtInt(n) : fmt(n); }
+function payQuick(total) { const s = new Set([Math.round(total*100)/100]); [100,500,1000,5000].forEach(u => { const v = Math.ceil(total/u)*u; if (v >= total) s.add(v); }); return [...s].sort((a,b) => a-b).slice(0,4); }
 function completeSale() {
-  if (!cart.length){ toast('Cart is empty','error'); return; }
-  const disc = Number(document.getElementById('discount').value||0);
-  const paid = Number(document.getElementById('paid').value||0);
-  const st = cart.reduce((a,i)=>a+i.price*i.qty,0);
-  const total = Math.max(0, st-disc);
-  const paidFinal = paid===0 ? total : paid;
-  const change = Math.max(0, paidFinal - total);
-  const balance = Math.max(0, total-paidFinal);
-  const method = document.getElementById('payment').value;
-  const preName = document.getElementById('cust-name').value.trim();
-  const prePhone = document.getElementById('cust-phone').value.trim();
-  if (balance > 0.01) {
-    const existing = prePhone ? DB.customers.find(c => (c.phone||'').trim() === prePhone) : null;
-    const fName = preName || (existing?.name || '');
-    const fId = existing?.id_number || '';
-    const fAddr = existing?.address || '';
-    openModal('💳 Credit Sale — Customer Info', `
-      <div class="credit-notice" style="background:rgba(255,159,10,.15);border-color:rgba(255,159,10,.6);color:var(--orange);font-size:12px;padding:10px 14px">⚠️ Balance due: <b style="font-size:14px">${fmtInt(balance)}</b><br><span style="font-size:11px;font-weight:500">Credit sale එකකට පහත තොරතුරු අනිවාර්යයි</span></div>
-      <div class="form-grid">
-        ${field('Customer name', `<input id="cc-name" class="ios-input" value="${esc(fName)}" autofocus>`, true)}
-        ${field('Phone number', `<input id="cc-phone" class="ios-input" value="${esc(prePhone)}" placeholder="07xxxxxxxx">`, true)}
-        ${field('ID number (NIC)', `<input id="cc-idnum" class="ios-input" value="${esc(fId)}" placeholder="200012345678">`, true)}
-        ${field('Address', `<input id="cc-address" class="ios-input" value="${esc(fAddr)}" placeholder="Full address">`, true)}
-      </div>`, () => {
-      const name = document.getElementById('cc-name').value.trim();
-      const phone = document.getElementById('cc-phone').value.trim();
-      const idnum = document.getElementById('cc-idnum').value.trim();
-      const address = document.getElementById('cc-address').value.trim();
-      if (!name) { toast('Name required','error'); return false; }
-      if (!phone) { toast('Phone required','error'); return false; }
-      if (!idnum) { toast('ID required','error'); return false; }
-      if (!address) { toast('Address required','error'); return false; }
-      finalizeSale({ disc, paidFinal, total, change, balance, method, custInfo: { name, phone, idnum, address } });
-    }, '✅ Complete Credit Sale');
-    return;
-  }
-  finalizeSale({ disc, paidFinal, total, change, balance: 0, method, custInfo: { name: preName, phone: prePhone, idnum: document.getElementById('cust-idnum')?.value.trim() || '', address: document.getElementById('cust-address')?.value.trim() || '' } });
+  if (!cart.length) { toast('Cart is empty','error'); return; }
+  if (document.getElementById('modal-root').children.length) return;
+  const disc = Number(document.getElementById('discount')?.value||0);
+  const st = cart.reduce((a,i) => a + i.price*i.qty, 0);
+  const total = Math.max(0, st - disc);
+  payState = { total, disc, method:'cash', step:'pay', received:0, changeAt:0, busy:false };
+  window.__refocusSales = true;
+  renderPayPopup();
 }
-function finalizeSale({ disc, paidFinal, total, change, balance, method, custInfo }) {
+function renderPayPopup() {
+  const s = payState; if (!s) return;
+  const g = id => document.getElementById(id);
+  let inner = '', focusId = '';
+  const top = `<div class="center" style="margin-bottom:12px"><div class="muted small" style="font-weight:700;letter-spacing:.06em">TOTAL</div><div style="font-size:34px;font-weight:800">${payMoney(s.total)}</div></div>`;
+  const tabs = `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px">${PAY_METHODS.map(([k,l],i) => `<button type="button" title="Alt+${i+1}" class="ios-pill ${s.method===k?'blue':'ghost'} sm" onclick="payMethod('${k}')">${l} <span class="kbd">Alt+${i+1}</span></button>`).join('')}</div>`;
+  const cancelBtn = '<button type="button" class="ios-pill ghost" onclick="closeModal()">Cancel</button>';
+  if (s.step === 'change') {
+    const ch = s.received - s.total;
+    inner = `<div class="center muted small" style="margin-bottom:6px">Customer gave <b>${payMoney(s.received)}</b> · Total <b>${payMoney(s.total)}</b></div><div class="sale-change-hero"><div class="label">💰 Give change</div><div class="val">${payMoney(ch)}</div></div><div class="center muted small kh" style="margin:10px 0">Press <b>Enter</b> to complete the sale</div><div class="row gap" style="justify-content:flex-end"><button type="button" class="ios-pill ghost" onclick="payBack()">← Back</button><button type="button" class="ios-pill green" id="pay-done" style="flex:1" onclick="payFinalize()">✓ Complete Sale</button></div>`;
+    focusId = 'pay-done';
+  } else if (s.method === 'cash') {
+    inner = top + tabs + `<div class="form-field"><label class="field-label">Customer gave</label><input id="pay-recv" class="ios-input" type="number" step="0.01" inputmode="decimal" placeholder="${payMoney(s.total)} (exact)" style="font-size:24px;font-weight:700;text-align:center" onkeydown="payKey(event)" oninput="payRecvLive()"></div><div id="pay-live" class="center small" style="min-height:22px;margin-top:6px"></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:8px 0 14px">${payQuick(s.total).map(v => `<button type="button" class="ios-pill sm" onclick="payQuickSet(${v})">${v===s.total?'Exact':''} ${payMoney(v)}</button>`).join('')}</div><div class="row gap" style="justify-content:flex-end">${cancelBtn}<button type="button" class="ios-pill green" onclick="payToChange()">Next ⏎</button></div>`;
+    focusId = 'pay-recv';
+  } else if (s.method === 'credit') {
+    const pn = g('cust-name')?.value.trim() || '', pp = g('cust-phone')?.value.trim() || '';
+    const ex = pp ? DB.customers.find(c => (c.phone||'').trim() === pp) : null;
+    const nm = pn || ex?.name || '', idn = g('cust-idnum')?.value.trim() || ex?.id_number || '', ad = g('cust-address')?.value.trim() || ex?.address || '';
+    const inp = (id, v, ph, type='text') => `<input id="${id}" class="ios-input" type="${type}" value="${esc(v)}" placeholder="${ph}" onkeydown="payKey(event)" ${id==='pay-cc-paid'?'oninput="payCreditLive()"':''}>`;
+    inner = top + tabs + `<div class="credit-notice" style="background:rgba(255,159,10,.15);border-color:rgba(255,159,10,.6);color:var(--orange);font-size:12px;padding:8px 12px;margin-bottom:10px">⚠️ Credit sale — customer details required</div><div class="form-grid">${field('Customer name', inp('pay-cc-name', nm, 'Name'), true)}${field('Phone number', inp('pay-cc-phone', pp, '07xxxxxxxx'), true)}${field('ID number (NIC)', inp('pay-cc-idnum', idn, '200012345678'), true)}${field('Address', inp('pay-cc-address', ad, 'Full address'), true)}${field('Paid now (optional)', inp('pay-cc-paid', '', '0', 'number'))}</div><div id="pay-live" class="center small" style="min-height:22px;margin:8px 0"></div><div class="row gap" style="justify-content:flex-end">${cancelBtn}<button type="button" class="ios-pill green" onclick="payFinalize()">✓ Complete Credit Sale</button></div>`;
+    focusId = !nm ? 'pay-cc-name' : (!pp ? 'pay-cc-phone' : (!idn ? 'pay-cc-idnum' : (!ad ? 'pay-cc-address' : 'pay-cc-paid')));
+  } else {
+    const lbl = PAY_METHODS.find(m => m[0] === s.method)[1];
+    inner = top + tabs + `<div class="center" style="margin:6px 0 16px">Customer pays <b>${payMoney(s.total)}</b> by <b>${lbl}</b></div><div class="center muted small kh" style="margin-bottom:10px">Press <b>Enter</b> to complete</div><div class="row gap" style="justify-content:flex-end">${cancelBtn}<button type="button" class="ios-pill green" id="pay-done" style="flex:1" onclick="payFinalize()">✓ Complete Sale</button></div>`;
+    focusId = 'pay-done';
+  }
+  const root = document.getElementById('modal-root');
+  if (!g('pay-inner')) root.innerHTML = `<div class="modal-bg" onclick="if(event.target===this) closeModal()"><div class="modal" style="max-width:440px"><h2>💰 Payment</h2><div id="pay-inner"></div></div></div>`;
+  g('pay-inner').innerHTML = inner;
+  setTimeout(() => { const el = g(focusId); if (el) { el.focus(); try { if (el.select && el.tagName === 'INPUT') el.select(); } catch(_) {} } }, 30);
+}
+function payMethod(m) { if (!payState) return; payState.method = m; payState.step = 'pay'; renderPayPopup(); }
+function payBack() { if (!payState) return; payState.step = 'pay'; renderPayPopup(); }
+function payRecvLive() {
+  const s = payState, el = document.getElementById('pay-live'), v = document.getElementById('pay-recv')?.value; if (!s || !el) return;
+  if (v === '' ) { el.innerHTML = ''; return; }
+  const r = Number(v)||0;
+  el.innerHTML = r + 0.009 >= s.total ? `<span class="success strong">Change: ${payMoney(Math.max(0, r - s.total))}</span>` : `<span class="warn strong">Short by ${payMoney(s.total - r)} — use Credit for partial payment</span>`;
+}
+function payCreditLive() {
+  const s = payState, el = document.getElementById('pay-live'); if (!s || !el) return;
+  const p = Number(document.getElementById('pay-cc-paid')?.value||0);
+  el.innerHTML = `Balance on credit: <b class="warn">${payMoney(Math.max(0, s.total - p))}</b>`;
+}
+function payQuickSet(v) { const el = document.getElementById('pay-recv'); if (el) el.value = v; payToChange(); }
+function payToChange() {
+  const s = payState; if (!s) return;
+  const raw = document.getElementById('pay-recv')?.value;
+  const v = (raw === '' || raw === undefined) ? s.total : Number(raw);
+  if (!(v >= 0) || v + 0.009 < s.total) { toast('Amount is less than the total — use Credit for partial payment','warn',3500); return; }
+  s.received = v;
+  if (v - s.total < 0.01) { payFinalize(); return; }
+  s.step = 'change'; s.changeAt = Date.now(); renderPayPopup();
+}
+function payKey(e) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault(); e.stopPropagation(); window.__noEnterUntil = Date.now() + 400;
+  const s = payState; if (!s || e.repeat) return;
+  if (s.method === 'cash') { payToChange(); return; }
+  if (s.method === 'credit') { const i = PAY_CR_IDS.indexOf(e.target.id); if (i >= 0 && i < PAY_CR_IDS.length - 1) { const n = document.getElementById(PAY_CR_IDS[i+1]); if (n) { n.focus(); try { n.select(); } catch(_) {} } } else payFinalize(); }
+}
+function payFinalize() {
+  const s = payState; if (!s || s.busy) return;
+  if (s.step === 'change' && Date.now() - s.changeAt < 300) return;
+  const g = id => document.getElementById(id);
+  const pageName = g('cust-name')?.value.trim() || '', pagePhone = g('cust-phone')?.value.trim() || '';
+  let method = s.method, paidFinal = s.total, change = 0, balance = 0, custInfo = { name:pageName, phone:pagePhone, idnum:'', address:'' };
+  if (s.method === 'cash') {
+    paidFinal = s.received > 0 ? s.received : s.total; change = Math.max(0, paidFinal - s.total);
+  } else if (s.method === 'credit') {
+    const name = g('pay-cc-name').value.trim(), phone = g('pay-cc-phone').value.trim(), idnum = g('pay-cc-idnum').value.trim(), address = g('pay-cc-address').value.trim();
+    const paid = Number(g('pay-cc-paid').value||0);
+    if (!name) { toast('Name required','error'); g('pay-cc-name').focus(); return; }
+    if (!phone) { toast('Phone required','error'); g('pay-cc-phone').focus(); return; }
+    if (!idnum) { toast('ID required','error'); g('pay-cc-idnum').focus(); return; }
+    if (!address) { toast('Address required','error'); g('pay-cc-address').focus(); return; }
+    if (paid < 0 || paid + 0.009 >= s.total) { toast('Paid amount covers the total — use Cash instead','warn',3500); return; }
+    method = 'cash'; paidFinal = paid; balance = Math.max(0, s.total - paid);
+    custInfo = { name, phone, idnum, address };
+  }
+  s.busy = true;
+  const disc = s.disc, total = s.total;
+  window.__noEnterUntil = Date.now() + 500;
+  closeModal(); payState = null;
+  finalizeSale({ disc, paidFinal, total, change, balance, method, custInfo, auto:true });
+}
+let postOpenedAt = 0;
+function postSaleActions(saleId) {
+  const s = DB.sales.find(x => x.id === saleId); if (!s) return;
+  const c = DB.customers.find(x => x.id === s.customer_id);
+  const ch = Number(s.change)||0;
+  postOpenedAt = Date.now(); window.__refocusSales = true; window.__noEnterUntil = Date.now() + 500;
+  document.getElementById('modal-root').innerHTML = `<div class="modal-bg" onclick="if(event.target===this) closeModal()"><div class="modal" style="max-width:400px" onkeydown="postKey(event,${saleId})"><div class="center"><div style="font-size:40px">✅</div><h2 style="margin:4px 0">Sale complete</h2><div class="muted small">${esc(s.invoice_no)} · <b>${fmtInt(s.total)}</b>${ch>0.01?` · change <b>${fmtInt(ch)}</b>`:''}${c?.name?` · ${esc(c.name)}`:''}</div></div><div style="display:grid;gap:10px;margin:18px 0 12px"><button type="button" class="ios-pill blue" style="padding:14px" onclick="printSaleReceipt(${saleId})">🖨️ Print Bill <span class="muted small kh">(P)</span></button><button type="button" class="ios-pill green" style="padding:14px" onclick="promptWhatsApp(${saleId})">💬 WhatsApp Bill <span class="muted small kh">(W)</span></button></div><button type="button" class="ios-pill ghost" id="post-done" style="width:100%" onclick="closeModal()">Done<span class="kh"> — press Enter to close</span></button></div></div>`;
+  setTimeout(() => document.getElementById('post-done')?.focus(), 30);
+}
+function postKey(e, saleId) {
+  if (e.key === 'Enter' || e.key === 'Escape') {
+    e.preventDefault(); e.stopPropagation(); window.__noEnterUntil = Date.now() + 400;
+    if (e.repeat || Date.now() - postOpenedAt < 400) return;
+    closeModal(); return;
+  }
+  const k = (e.key||'').toLowerCase();
+  if (k === 'p') { e.preventDefault(); printSaleReceipt(saleId); }
+  else if (k === 'w') { e.preventDefault(); promptWhatsApp(saleId); }
+}
+
+function finalizeSale({ disc, paidFinal, total, change, balance, method, custInfo, auto }) {
   const cname = custInfo.name, cphone = custInfo.phone, cidnum = custInfo.idnum, caddress = custInfo.address;
   let cust_id = null;
   if (cname) {
@@ -2298,9 +2763,9 @@ function finalizeSale({ disc, paidFinal, total, change, balance, method, custInf
   DB.sales.push(sale);
   const repDelivered = [], repPending = [];
   cart.forEach(it => {
-    DB.sale_items.push({ repair_id: it.type==='repair' ? it.repair_id : null, id:nextId('sale_items'), sale_id:sale.id, item_type: it.type || 'phone', item_code: it.code || '', barcode: it.barcode || '', warranty_months: it.warranty_months || 0, stock_unit_id: it.type==='phone' ? it.unit_id : null, accessory_id: it.type==='accessory' ? it.accessory_id : null, product_id: it.type==='phone' ? it.product_id : null, description:it.desc, price:it.price, qty:it.qty, cost:it.cost });
+    DB.sale_items.push({ repair_id: it.type==='repair' ? it.repair_id : null, id:nextId('sale_items'), sale_id:sale.id, item_type: it.type || 'phone', item_code: it.code || '', barcode: it.barcode || '', warranty_months: it.warranty_months || 0, stock_unit_id: it.type==='phone' ? it.unit_id : null, accessory_id: it.type==='accessory' ? it.accessory_id : null, batch_id: it.type==='accessory' ? (it.batch_id ?? null) : null, product_id: it.type==='phone' ? it.product_id : null, description:it.desc, price:it.price, qty:it.qty, cost:it.cost });
     if (it.type === 'phone') { const u = DB.stock_units.find(x=>x.id===it.unit_id); if (u){ u.status = 'sold'; u.sold_at = now(); } }
-    else if (it.type === 'accessory') { const a = DB.accessories.find(x=>x.id===it.accessory_id); if (a){ a.qty = Math.max(0, (a.qty||0) - it.qty); } }
+    else if (it.type === 'accessory') { const a = DB.accessories.find(x=>x.id===it.accessory_id); if (a){ accRemoveStock(a, it.qty, it.batch_id); } }
     if (it.type === 'repair') {
       const rr = DB.repairs.find(x=>x.id===it.repair_id);
       if (rr && rr.status !== 'delivered') {
@@ -2317,7 +2782,7 @@ function finalizeSale({ disc, paidFinal, total, change, balance, method, custInf
   if (repPending.length) toast('⚠️ Bill not fully paid — ' + repPending.join(', ') + ' not marked delivered yet', 'warn', 6000);
   const saleIdToShow = sale.id;
   clearCart();
-  setTimeout(() => showSaleCompleteModal(saleIdToShow), 30);
+  if (auto) postSaleActions(saleIdToShow); else setTimeout(() => showSaleCompleteModal(saleIdToShow), 30);
 }
 function showSaleCompleteModal(saleId) {
   const s = DB.sales.find(x=>x.id===saleId); if (!s) return;
@@ -2393,7 +2858,7 @@ function showReturnModal(saleId) {
       if ((si.item_code||'').startsWith('ACC-')) it = 'accessory';
       DB.returns.push({ id: nextId('returns'), sale_id: saleId, sale_item_id: si.id, invoice_no: sale.invoice_no, item_type: it, item_code: si.item_code || '', description: si.description, qty: s.qty, unit_price: si.price, original_amount: (Number(si.price)||0) * s.qty, refund_amount: s.refundForItem, refund_method: rm, reason, notes, condition: s.cond, restocked: g, created_at: now(), user_id: currentUser?.id || null });
       if (it === 'phone') { const u = si.stock_unit_id ? DB.stock_units.find(x => x.id === si.stock_unit_id) : null; if (u) { if (g) { u.status = 'in_stock'; u.sold_at = null; u.returned_at = now(); rc += s.qty; } else { u.status = 'returned'; u.returned_at = now(); wc += s.qty; } } }
-      else if (it === 'accessory') { let a = si.accessory_id ? DB.accessories.find(x => x.id === si.accessory_id) : null; if (!a && si.item_code) a = DB.accessories.find(x => x.code === si.item_code); if (a && g) { a.qty = (Number(a.qty)||0) + s.qty; rc += s.qty; } else if (!g) wc += s.qty; }
+      else if (it === 'accessory') { let a = si.accessory_id ? DB.accessories.find(x => x.id === si.accessory_id) : null; if (!a && si.item_code) a = DB.accessories.find(x => x.code === si.item_code); if (a && g) { accRestock(a, si, s.qty); rc += s.qty; } else if (!g) wc += s.qty; }
     });
     if (sale.customer_id && tB > 0) addCredit(sale.customer_id, -tB);
     if (rm === 'cash' && tB > 0 && sale.customer_id) DB.credit_payments.push({ id:nextId('credit_payments'), customer_id: sale.customer_id, amount: tB, method: 'refund', note: `Auto from return`, created_at: now(), user_id: currentUser?.id||null });
@@ -2454,13 +2919,13 @@ function renderPhoneStockBody() {
     if (q) prods = prods.filter(p => (p.code||'').toLowerCase().includes(q) || (p.brand||'').toLowerCase().includes(q) || (p.model||'').toLowerCase().includes(q) || (p.storage||'').toLowerCase().includes(q) || (p.color||'').toLowerCase().includes(q));
     prods.sort((a,b)=>b.id-a.id);
     if (!prods.length){ body.innerHTML = '<div class="card center pad muted">No matching products</div>'; return; }
-    body.innerHTML = `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Code</th><th>Product</th><th>Storage</th><th>Color</th>${cv?'<th>Cost</th>':''}<th>Sale</th><th>In Stock</th><th>Sold</th><th></th></tr></thead><tbody>${prods.map(p => { const low = p.cnt <= (p.low_stock_threshold||DB.settings.low_stock); return `<tr><td>${codeChip(p.code,false,false,p.barcode)}</td><td class="strong">${esc(p.brand)} ${esc(p.model)}</td><td>${esc(p.storage||'-')}</td><td>${esc(p.color||'-')}</td>${cv?`<td class="muted">${fmtInt(p.cost_price)}</td>`:''}<td class="primary-c strong">${fmtInt(p.sale_price)}</td><td class="${low?'warn':'success'} strong">${p.cnt}</td><td class="muted small">${p.sold}</td><td style="display:flex;gap:4px;flex-wrap:wrap"><button class="ios-pill sm" onclick="openBarcodePrint('product',${p.id})">🏷️ Print</button>${cm?`<button class="ios-pill sm" onclick="showEditProduct(${p.id})">Edit</button><button class="ios-pill red sm" onclick="deleteProduct(${p.id})">Del</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>`;
+    body.innerHTML = `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Code</th><th>Product</th><th>Storage</th><th>Color</th>${cv?'<th>Cost</th>':''}<th>Sale</th><th>In Stock</th><th>Sold</th><th></th></tr></thead><tbody>${prods.map(p => { const low = p.cnt <= (p.low_stock_threshold||DB.settings.low_stock); return `<tr><td>${codeChip(p.code,false,false,p.barcode)}</td><td class="strong">${esc(p.brand)} ${esc(p.model)}</td><td>${esc(p.storage||'-')}</td><td>${esc(p.color||'-')}</td>${cv?`<td class="muted">${prodPriceLines(p,'cost')}</td>`:''}<td class="primary-c strong">${prodPriceLines(p,'sale')}</td><td class="${low?'warn':'success'} strong">${p.cnt}</td><td class="muted small">${p.sold}</td><td style="display:flex;gap:4px;flex-wrap:wrap"><button class="ios-pill sm" onclick="showItemSales('product',${p.id})">📜 Sales</button><button class="ios-pill sm" onclick="openBarcodePrint('product',${p.id})">🏷️ Print</button>${cm?`<button class="ios-pill sm" onclick="showEditProduct(${p.id})">Edit</button><button class="ios-pill red sm" onclick="deleteProduct(${p.id})">Del</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>`;
   } else {
     let units = DB.stock_units.map(u => { const p = DB.products.find(x=>x.id===u.product_id)||{}; return {...u, code:p.code, brand:p.brand, model:p.model, storage:p.storage, pbarcode:p.barcode}; });
     if (q) units = units.filter(u => (u.imei||'').toLowerCase().includes(q) || (u.barcode||'').toLowerCase().includes(q) || (u.code||'').toLowerCase().includes(q) || (u.brand||'').toLowerCase().includes(q) || (u.model||'').toLowerCase().includes(q));
     units.sort((a,b)=>b.id-a.id);
     if (!units.length){ body.innerHTML = '<div class="card center pad muted">No matching stock units</div>'; return; }
-    body.innerHTML = `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Code</th><th>Product</th><th>IMEI</th><th>Barcode</th>${cv?'<th>Cost</th>':''}<th>Sale</th><th>Status</th><th>Added</th><th></th></tr></thead><tbody>${units.map(u => `<tr><td>${codeChip(u.code)}</td><td class="strong">${esc(u.brand||'')} ${esc(u.model||'')} ${esc(u.storage||'')}</td><td>${esc(u.imei||'-')}</td><td>${(u.barcode||u.pbarcode)?`<span class="code-chip barcode">🏷️ ${esc(u.barcode||u.pbarcode)}</span>`:'<span class="muted small">—</span>'}</td>${cv?`<td class="muted">${fmtInt(u.cost_price)}</td>`:''}<td class="primary-c strong">${fmtInt(u.sale_price)}</td><td><span class="badge badge-${u.status}">${u.status.replace(/_/g,' ')}</span></td><td class="muted small">${esc((u.added_at||'').slice(0,10))}</td><td style="display:flex;gap:4px;flex-wrap:wrap"><button class="ios-pill sm" onclick="openBarcodePrint('unit',${u.id})">🏷️ Print</button>${cm && u.status!=='sold' && u.status!=='returned' ? `<button class="ios-pill red sm" onclick="deleteStockUnit(${u.id})">Del</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
+    body.innerHTML = `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Code</th><th>Product</th><th>IMEI</th><th>Barcode</th>${cv?'<th>Cost</th>':''}<th>Sale</th><th>Status</th><th>Added</th><th></th></tr></thead><tbody>${units.map(u => `<tr><td>${codeChip(u.code)}</td><td class="strong">${esc(u.brand||'')} ${esc(u.model||'')} ${esc(u.storage||'')}</td><td>${esc(u.imei||'-')}</td><td>${(u.barcode||u.pbarcode)?`<span class="code-chip barcode">🏷️ ${esc(u.barcode||u.pbarcode)}</span>`:'<span class="muted small">—</span>'}</td>${cv?`<td class="muted">${fmtInt(u.cost_price)}</td>`:''}<td class="primary-c strong">${fmtInt(u.sale_price)}</td><td><span class="badge badge-${u.status}">${u.status.replace(/_/g,' ')}</span></td><td class="muted small">${esc((u.added_at||'').slice(0,10))}</td><td style="display:flex;gap:4px;flex-wrap:wrap"><button class="ios-pill sm" onclick="showItemSales('unit',${u.id})">📜 Sales</button>${cm && u.status==='in_stock' ? `<button class="ios-pill sm" onclick="showEditUnitPrice(${u.id})">Price</button>` : ''}<button class="ios-pill sm" onclick="openBarcodePrint('unit',${u.id})">🏷️ Print</button>${cm && u.status!=='sold' && u.status!=='returned' ? `<button class="ios-pill red sm" onclick="deleteStockUnit(${u.id})">Del</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
   }
 }
 function normalizeProductField(v) { return String(v ?? '').normalize('NFKC').trim().toLocaleLowerCase().replace(/\s+/g, ' '); }
@@ -2483,7 +2948,6 @@ function mergeDuplicateProducts() { if (!(currentUser.role==='admin'||currentUse
 function showAddProduct() { if (!(currentUser.role==='admin'||currentUser.role==='manager')){ toast('Access denied','error'); return; } const pc = makeProductCode(DB.ids.products); let productSubmitLocked = false; openModal('Add Phone Product', `<div class="form-grid"><div class="field-hint">🔖 Code: <b class="primary-c">${esc(pc)}</b> &nbsp;·&nbsp; 🏷️ Barcode (auto): <b class="primary-c">${makeBarcode(1, DB.ids.products)}</b></div>${field('Brand', '<input id="np-brand" class="ios-input" placeholder="SAMSUNG" oninput="showExistingPhoneMatches()" autofocus>', true)}${field('Model', '<input id="np-model" class="ios-input" placeholder="A065" oninput="showExistingPhoneMatches()">', true)}<div id="np-existing-products" class="card pad" style="margin-top:-4px"><span class="muted small">Type a brand or model to see products already added.</span></div>${field('Storage', '<input id="np-storage" class="ios-input" placeholder="64" oninput="showExistingPhoneMatches()">')}${field('Color', '<input id="np-color" class="ios-input" placeholder="BLACK" oninput="showExistingPhoneMatches()">')}<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Cost', '<input id="np-cost" class="ios-input" type="number" step="0.01" placeholder="0">')}${field('Sale', '<input id="np-price" class="ios-input" type="number" step="0.01" placeholder="0">')}</div>${field('Low stock alert', '<input id="np-low" class="ios-input" type="number" value="2">')}</div>`, () => { const brand = document.getElementById('np-brand').value.trim(); const model = document.getElementById('np-model').value.trim(); const storage = document.getElementById('np-storage').value.trim(); const color = document.getElementById('np-color').value.trim(); if (!model){ toast('Model required','error'); return false; } const key = productIdentityKey({brand, model, storage, color}); const dup = DB.products.find(p => productIdentityKey(p) === key); if (dup) { toast(`Already exists: ${dup.code} — ${[dup.brand,dup.model,dup.storage,dup.color].filter(Boolean).join(' ')}`, 'error', 5000); const useExisting = confirm(`This product already exists (${dup.code}).\n\nDo not add it again. If you have another physical phone, use + Stock Unit and select this existing product.\n\nOpen Add Stock Unit now?`); if (useExisting) { closeModal(); showAddUnitForProduct(dup.id); } return false; } if (productSubmitLocked) return false; productSubmitLocked = true; const saveButton = document.getElementById('modal-ok'); if (saveButton) { saveButton.disabled = true; saveButton.textContent = 'Saving…'; } const nid = nextId('products'); DB.products.push({ id:nid, code:makeProductCode(nid), barcode:makeBarcode(1,nid), brand, model, storage, color, cost_price:Number(document.getElementById('np-cost').value||0), sale_price:Number(document.getElementById('np-price').value||0), low_stock_threshold:Number(document.getElementById('np-low').value||2), created_at:now() }); save(); rebuildOrderHistory(); toast(`Added — ${makeProductCode(nid)}`,'success'); renderPhoneStockBody(); }); }
 function showEditProduct(id) { if (!(currentUser.role==='admin'||currentUser.role==='manager')){ toast('Access denied','error'); return; } const p = DB.products.find(x=>x.id===id); if (!p) return; openModal(`Edit — ${p.code}`, `<div class="form-grid">${field('Brand', `<input id="ep-brand" class="ios-input" value="${esc(p.brand||'')}">`)}${field('Model', `<input id="ep-model" class="ios-input" value="${esc(p.model||'')}">`, true)}${field('Storage', `<input id="ep-storage" class="ios-input" value="${esc(p.storage||'')}">`)}${field('Color', `<input id="ep-color" class="ios-input" value="${esc(p.color||'')}">`)}<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Cost', `<input id="ep-cost" class="ios-input" type="number" step="0.01" value="${p.cost_price||0}">`)}${field('Sale', `<input id="ep-price" class="ios-input" type="number" step="0.01" value="${p.sale_price||0}">`)}</div>${field('Low stock', `<input id="ep-low" class="ios-input" type="number" value="${p.low_stock_threshold||2}">`)}</div>`, () => { p.brand = document.getElementById('ep-brand').value.trim(); p.model = document.getElementById('ep-model').value.trim(); p.storage = document.getElementById('ep-storage').value.trim(); p.color = document.getElementById('ep-color').value.trim(); p.cost_price = Number(document.getElementById('ep-cost').value||0); p.sale_price = Number(document.getElementById('ep-price').value||0); p.low_stock_threshold = Number(document.getElementById('ep-low').value||2); save(); rebuildOrderHistory(); toast('Updated','success'); renderPhoneStockBody(); }); }
 function showAddUnit() { showAddUnitForProduct(null); }
-function showAddUnitForProduct(preselectedProductId) { if (!(currentUser.role==='admin'||currentUser.role==='manager')){ toast('Access denied','error'); return; } if (!DB.products.length){ toast('Add product first','warn'); return; } const opts = DB.products.map(p => `<option value="${p.id}" ${Number(preselectedProductId)===Number(p.id)?'selected':''}>${esc(p.code)} · ${esc(p.brand)} ${esc(p.model)} ${esc(p.storage||'')}</option>`).join(''); openModal('Add Stock Unit', `<div class="form-grid">${field('Product', `<select id="nu-product" class="ios-input">${opts}</select>`, true)}${field('IMEI', '<input id="nu-imei" class="ios-input" placeholder="15-digit IMEI">')}${field('Barcode', '<input id="nu-barcode" class="ios-input" placeholder="Scan or type barcode" autofocus>', false, '🏷️ Optional')}${field('Condition', '<select id="nu-cond" class="ios-input"><option value="new">New</option><option value="used">Used</option></select>')}${field('Warranty (months)', '<input id="nu-warranty" class="ios-input" type="number" value="12" min="0">')}${field('Sale price (optional)', '<input id="nu-price" class="ios-input" type="number" step="0.01" placeholder="Default">')}</div>`, () => { const pid = Number(document.getElementById('nu-product').value); const p = DB.products.find(x=>x.id===pid); if (!p) return false; const imei = document.getElementById('nu-imei').value.trim(); const barcode = document.getElementById('nu-barcode').value.trim(); if (imei && DB.stock_units.find(u=>u.imei===imei)){ toast('IMEI exists','error'); return false; } if (barcode && DB.stock_units.find(u=>u.barcode===barcode)){ toast('Barcode exists','error'); return false; } DB.stock_units.push({ id:nextId('stock_units'), product_id:pid, imei:imei||null, barcode:barcode||'', condition:document.getElementById('nu-cond').value, status:'in_stock', cost_price:p.cost_price||0, sale_price:Number(document.getElementById('nu-price').value||p.sale_price||0), warranty_months:Number(document.getElementById('nu-warranty').value||0), added_at:now(), sold_at:null }); save(); toast('Unit added','success'); renderPhoneStockBody(); }); }
 async function deleteProduct(id) { if (!(currentUser.role==='admin'||currentUser.role==='manager')){ toast('Access denied','error'); return; } const p = DB.products.find(x=>x.id===id); if (!p) return; const u = DB.stock_units.filter(x=>x.product_id===id); const ok = await requireDangerConfirm(`DELETE ${p.code}`, u.length ? `${u.length} units linked.` : 'No units.', { warnings: u.length ? 2 : 1, password: u.length > 0 }); if (!ok) return; DB.products = DB.products.filter(x => x.id !== id); if (u.length) DB.stock_units = DB.stock_units.filter(x => x.product_id !== id); save(); rebuildOrderHistory(); toast('Deleted','success'); renderPhoneStockBody(); }
 async function deleteStockUnit(id) { if (!(currentUser.role==='admin'||currentUser.role==='manager')){ toast('Access denied','error'); return; } const u = DB.stock_units.find(x=>x.id===id); if (!u) return; const ok = await requireDangerConfirm('DELETE unit', `IMEI: ${u.imei||'-'}`, { warnings: 1, password: false }); if (!ok) return; DB.stock_units = DB.stock_units.filter(x => x.id !== id); save(); toast('Deleted','success'); renderPhoneStockBody(); }
 
@@ -2508,7 +2972,7 @@ function renderAccessoryBody() {
   if (q) rows = rows.filter(a => (a.code||'').toLowerCase().includes(q) || (a.name||'').toLowerCase().includes(q) || (a.category||'').toLowerCase().includes(q) || (a.barcode||'').toLowerCase().includes(q));
   rows.sort((a,b)=>b.id-a.id);
   if (!rows.length){ body.innerHTML = '<div class="card center pad muted">No items</div>'; return; }
-  body.innerHTML = `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Barcode</th>${cv?'<th>Cost</th>':''}<th>Sale</th><th>Qty</th><th></th></tr></thead><tbody>${rows.map(a => { const low = (a.qty||0) <= (a.low_stock_threshold||2); return `<tr><td>${codeChip(a.code, true)}</td><td class="strong">${esc(a.name)}</td><td>${esc(a.category||'-')}</td><td>${a.barcode?`<span class="code-chip barcode">🏷️ ${esc(a.barcode)}</span>`:'<span class="muted small">—</span>'}</td>${cv?`<td class="muted">${fmtInt(a.cost_price)}</td>`:''}<td class="primary-c strong">${fmtInt(a.sale_price)}</td><td class="${low?'warn':'success'} strong">${a.qty||0}</td><td style="display:flex;gap:4px;flex-wrap:wrap"><button class="ios-pill sm" onclick="openBarcodePrint('acc',${a.id})">🏷️ Print</button>${cm?`<button class="ios-pill sm" onclick="showAddAccessory(${a.id})">Edit</button><button class="ios-pill sm" onclick="adjustAccessoryQty(${a.id})">Qty</button><button class="ios-pill red sm" onclick="deleteAccessory(${a.id})">Del</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>`;
+  body.innerHTML = `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Barcode</th>${cv?'<th>Cost</th>':''}<th>Sale</th><th>Qty</th><th></th></tr></thead><tbody>${rows.map(a => { const low = (a.qty||0) <= (a.low_stock_threshold||2); return `<tr><td>${codeChip(a.code, true)}</td><td class="strong">${esc(a.name)}</td><td>${esc(a.category||'-')}</td><td>${a.barcode?`<span class="code-chip barcode">🏷️ ${esc(a.barcode)}</span>`:'<span class="muted small">—</span>'}</td>${cv?`<td class="muted">${accPriceLines(a,'cost')}</td>`:''}<td class="primary-c strong">${accPriceLines(a,'price')}</td><td class="${low?'warn':'success'} strong">${a.qty||0}</td><td style="display:flex;gap:4px;flex-wrap:wrap"><button class="ios-pill sm" onclick="showItemSales('acc',${a.id})">📜 Sales</button>${accLive(a).length>1?`<button class="ios-pill sm" onclick="showAccBatches(${a.id})">💲 Prices</button>`:''}<button class="ios-pill sm" onclick="openBarcodePrint('acc',${a.id})">🏷️ Print</button>${cm?`<button class="ios-pill sm" onclick="showAddAccessory(${a.id})">Edit</button><button class="ios-pill sm" onclick="adjustAccessoryQty(${a.id})">Qty</button><button class="ios-pill red sm" onclick="deleteAccessory(${a.id})">Del</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>`;
 }
 function normalizeAccessoryName(v) { return String(v ?? '').normalize('NFKC').trim().toLocaleLowerCase().replace(/[\s\u00a0]+/g, ' ').replace(/[’‘]/g, "'").replace(/[–—]/g, '-'); }
 function showExistingAccessoryMatches() {
@@ -2521,50 +2985,6 @@ function showExistingAccessoryMatches() {
   if (!matches.length) { box.innerHTML = '<span class="success small">✓ No matching item found — this looks like a new item.</span>'; return; }
   box.innerHTML = '<div class="warn small strong" style="margin-bottom:6px">⚠ Existing item(s) found. Select an existing item instead of creating a duplicate:</div>' + matches.map(x => `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--border)"><span><b>${esc(x.name)}</b> <span class="muted small">${esc(x.code||'')} · ${esc(x.category||'Other')} · Qty: ${Number(x.qty||0)}</span></span><button type="button" class="ios-pill sm" onclick="useExistingAccessory(${Number(x.id)})">Use existing</button></div>`).join('');
 }
-function useExistingAccessory(id) {
-  const a = DB.accessories.find(x => Number(x.id) === Number(id));
-  if (!a) return;
-  const addQty = prompt(`“${a.name}” already exists (current quantity: ${Number(a.qty||0)}).\nEnter quantity to add to this existing item (0 to cancel):`, '0');
-  if (addQty === null) return;
-  const n = Number(addQty);
-  if (!Number.isFinite(n) || n <= 0) { toast('No quantity added. Existing item was not duplicated.','info',3500); return; }
-  a.qty = Number(a.qty||0) + n;
-  save();
-  closeModal();
-  renderAccessoryBody();
-  toast(`Added ${n} to ${a.name}. Existing item updated.`, 'success', 4500);
-}
-function showAddAccessory(id) {
-  if (!(currentUser.role==='admin'||currentUser.role==='manager')){ toast('Access denied','error'); return; }
-  const a = id ? DB.accessories.find(x=>x.id===id) : null;
-  const cats = getAllCategories();
-  const pc = a ? (a.code||makeAccessoryCode(a.id)) : makeAccessoryCode(DB.ids.accessories);
-  const existing = DB.accessories.filter(x => !a || Number(x.id)!==Number(a.id)).slice().sort((x,y)=>(x.name||'').localeCompare(y.name||''));
-  const existingOptions = existing.map(x=>`<option value="${esc(x.name)}"></option>`).join('');
-  openModal(a?`Edit — ${a.code}`:'Add Stock Item', `<div class="form-grid"><div class="field-hint">🔖 Code: <b style="color:var(--purple)">${esc(pc)}</b></div>${field('Item name', `<input id="na-name" class="ios-input" list="acc-existing-names" oninput="showExistingAccessoryMatches()" placeholder="iPhone 15 Tempered Glass" value="${esc(a?.name||'')}" autofocus><datalist id="acc-existing-names">${existingOptions}</datalist>`, true)}<div id="na-existing-items" class="card pad" style="margin-top:-4px"><span class="muted small">Start typing to find existing stock items.</span></div>${field('Barcode', `<input id="na-barcode" class="ios-input" placeholder="Auto-generated if empty" value="${esc(a?.barcode||'')}">`, false, '🏷️ Leave empty = auto barcode')}${field('Category', `<input id="na-cat" class="ios-input" list="acc-cat-suggest" placeholder="Type or pick" value="${esc(a?.category||'')}"><datalist id="acc-cat-suggest">${cats.map(c=>`<option value="${esc(c)}"></option>`).join('')}</datalist>`)}<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Cost', `<input id="na-cost" class="ios-input" type="number" step="0.01" placeholder="0" value="${a?.cost_price ?? ''}">`)}${field('Sale', `<input id="na-price" class="ios-input" type="number" step="0.01" placeholder="0" value="${a?.sale_price ?? ''}">`)}</div>${field('Warranty (months)', `<input id="na-warranty" class="ios-input" type="number" min="0" placeholder="0" value="${a?.warranty_months ?? 0}">`)}<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Quantity', `<input id="na-qty" class="ios-input" type="number" placeholder="0" value="${a?.qty ?? 0}">`)}${field('Low stock', `<input id="na-low" class="ios-input" type="number" value="${a?.low_stock_threshold ?? 2}">`)}</div></div>`, () => {
-    const name = document.getElementById('na-name').value.trim();
-    if (!name){ toast('Name required','error'); return false; }
-    if (!a) {
-      const key = normalizeAccessoryName(name);
-      const dup = DB.accessories.find(x => normalizeAccessoryName(x.name) === key);
-      if (dup) {
-        toast(`Already added: ${dup.name} (${dup.code}), Qty: ${Number(dup.qty||0)}`, 'error', 5000);
-        const addMore = confirm(`“${dup.name}” already exists (Qty: ${Number(dup.qty||0)}).\n\nDo you want to add quantity to this existing item instead?`);
-        if (addMore) { closeModal(); useExistingAccessory(dup.id); }
-        return false;
-      }
-    }
-    const barcode = document.getElementById('na-barcode').value.trim();
-    if (barcode) { const dup = DB.accessories.find(x => x.barcode === barcode && x.id !== id); if (dup) { toast('Barcode used by ' + dup.code, 'error', 4000); return false; } }
-    const data = { name, barcode: barcode || makeBarcode(2, a ? a.id : DB.ids.accessories), category:document.getElementById('na-cat').value.trim(), cost_price:Number(document.getElementById('na-cost').value||0), sale_price:Number(document.getElementById('na-price').value||0), warranty_months:Number(document.getElementById('na-warranty').value||0), qty:Number(document.getElementById('na-qty').value||0), low_stock_threshold:Number(document.getElementById('na-low').value||2) };
-    if (a) { Object.assign(a, data); toast('Updated','success'); }
-    else { const nid = nextId('accessories'); DB.accessories.push({ id:nid, code:makeAccessoryCode(nid), ...data, created_at:now() }); toast(`Added — ${makeAccessoryCode(nid)}`,'success'); }
-    save(); renderAccessoryBody();
-  });
-  if (a) showExistingAccessoryMatches();
-}
-function adjustAccessoryQty(id) { const a = DB.accessories.find(x=>x.id===id); if (!a) return; openModal(`Adjust Qty — ${a.name}`, `<div class="form-grid">${field('Current qty', `<input class="ios-input" value="${a.qty||0}" disabled>`)}${field('Add / Remove', '<input id="aq-add" class="ios-input" type="number" placeholder="5 or -2" value="0" oninput="toggleAdjustNoteField()" autofocus>', true, 'Positive=add, negative=remove')}<div id="aq-note-wrap" style="display:none"><div class="credit-notice">⚠️ Note required</div>${field('Reason', '<input id="aq-note" class="ios-input" placeholder="Damaged, Lost">', true)}</div></div>`, () => { const delta = Number(document.getElementById('aq-add').value||0); if (!delta) { toast('Enter number','error'); return false; } const note = (document.getElementById('aq-note')?.value || '').trim(); if (delta < 0 && !note) { toast('Note required','error',3500); return false; } if (delta < 0 && Math.abs(delta) > (a.qty||0)) { toast('Exceeds stock','error',3500); return false; } if (delta < 0) DB.stock_adjustments.push({ id: nextId('stock_adjustments'), accessory_id: a.id, item_code: a.code || '', description: a.name, qty_removed: Math.abs(delta), qty_before: a.qty||0, qty_after: Math.max(0, (a.qty||0) + delta), note, created_at: now(), user_id: currentUser?.id || null }); a.qty = Math.max(0, (a.qty||0) + delta); save(); toast(delta < 0 ? `Removed ${Math.abs(delta)}` : `Added ${delta}`, delta < 0 ? 'warn' : 'success'); renderAccessoryBody(); }); }
-function toggleAdjustNoteField() { const i = document.getElementById('aq-add'); const w = document.getElementById('aq-note-wrap'); if (!i || !w) return; w.style.display = Number(i.value || 0) < 0 ? 'block' : 'none'; }
 async function deleteAccessory(id) { if (!(currentUser.role==='admin'||currentUser.role==='manager')){ toast('Access denied','error'); return; } const a = DB.accessories.find(x=>x.id===id); if (!a) return; const ok = await requireDangerConfirm(`DELETE ${a.code}`, `"${a.name}" qty: ${a.qty||0}`, { warnings: 1, password: false }); if (!ok) return; DB.accessories = DB.accessories.filter(x=>x.id!==id); save(); toast('Deleted','success'); renderAccessoryBody(); }
 
 /* ═══ REPAIRS ═══ */
@@ -3358,7 +3778,7 @@ async function startPosAfterFirebaseAuth(firebaseUser) {
     document.getElementById('login-shop-name').textContent = DB.settings.shop_name;
     rebuildOrderHistory();
     /* Require the local POS staff login after Firebase authentication on every fresh app boot. */
-    sessionStorage.removeItem('pos_user_id'); currentUser = null; showLogin();
+    sessionStorage.removeItem('pos_user_id'); currentUser = null; if (!tryRememberedLogin()) showLogin();
     fbInitDone = true;
     startRealtimeSync(); startResetListener();
     const vc = document.getElementById('version-chip'); if (vc) vc.textContent = POS_VERSION;
