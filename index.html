@@ -48,6 +48,9 @@ input,select,textarea{font-family:inherit;color:inherit}
 .nav a.active{background:var(--blue);color:#fff;font-weight:600;box-shadow:0 4px 14px rgba(10,132,255,.4)}
 .nav a .nav-icon{font-size:15px;width:20px;text-align:center}
 .kbd{display:inline-block;font:600 10.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:3px 6px;border-radius:5px;border:1px solid var(--glass-border);background:var(--glass-hover);color:var(--text-2);vertical-align:middle;margin-left:4px;white-space:nowrap}
+.result-card.kb-sel{outline:2px solid var(--blue);outline-offset:-2px;background:var(--glass-hover)}
+.sale-cats{display:flex;gap:6px;overflow-x:auto;padding:2px 0 4px;scrollbar-width:thin}
+.sale-cats .ios-pill{flex-shrink:0;white-space:nowrap}
 .nav a .nav-kbd{margin-left:auto;font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;opacity:.6}
 .nav a.active .nav-kbd{opacity:.85}
 @media (hover:none),(max-width:768px){.kbd,.nav-kbd,.kh{display:none !important}}
@@ -1551,7 +1554,7 @@ function showQtyPopup(o) {
     ? `<div style="display:grid;gap:8px;margin-bottom:12px">${opts.map((x,i) => `<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--separator);border-radius:var(--radius-md);background:var(--glass-hover);cursor:pointer"><input type="radio" name="qp-opt" value="${esc(String(x.key))}" ${i===0?'checked':''}><div style="flex:1;min-width:0"><div class="strong" style="font-size:15px">${esc(x.label)}</div>${x.sub?`<div class="muted small">${esc(x.sub)}</div>`:''}</div><div class="muted small">${x.avail} available</div></label>`).join('')}</div>`
     : `<div class="muted small" style="margin-bottom:6px">${esc(opts[0].label)}${opts[0].sub?' · '+esc(opts[0].sub):''} · <b>${opts[0].avail}</b> available</div>`;
   qtyPopupOpenedAt = Date.now(); window.__refocusSales = true;
-  openModal(o.title || 'Add to cart', `<div class="form-grid"><div class="strong" style="font-size:14px">${esc(o.name)}</div>${optsHTML}${field('How many to add?', '<input id="qp-qty" class="ios-input" type="number" inputmode="numeric" min="1" step="1" value="1" style="font-size:22px;font-weight:700;text-align:center">')}<div style="display:grid;grid-template-columns:110px 1fr;gap:10px">${field('Discount (optional)', '<select id="qp-dtype" class="ios-input"><option value="amt">Rs off</option><option value="pct">% off</option></select>')}${field('\u00a0', '<input id="qp-disc" class="ios-input" type="number" step="0.01" min="0" placeholder="0">')}</div><div class="muted small center kh">Press <b>Enter</b> to add</div></div>`, () => {
+  openModal(o.title || 'Add to cart', `<div class="form-grid"><div class="strong" style="font-size:14px">${esc(o.name)}</div>${optsHTML}${o.noQty ? '<input id="qp-qty" type="hidden" value="1">' : field('How many to add?', '<input id="qp-qty" class="ios-input" type="number" inputmode="numeric" min="1" step="1" value="1" style="font-size:22px;font-weight:700;text-align:center">')}<div style="display:grid;grid-template-columns:110px 1fr;gap:10px">${field('Discount (optional)', '<select id="qp-dtype" class="ios-input"><option value="amt">Rs off</option><option value="pct">% off</option></select>')}${field('\u00a0', '<input id="qp-disc" class="ios-input" type="number" step="0.01" min="0" placeholder="0">')}</div><div class="muted small center kh">Press <b>Enter</b> to add</div></div>`, () => {
     const sel = multi ? document.querySelector('input[name="qp-opt"]:checked') : null;
     const key = multi ? sel.value : String(opts[0].key);
     const opt = opts.find(x => String(x.key) === key);
@@ -1564,9 +1567,9 @@ function showQtyPopup(o) {
   }, '➕ Add to Cart');
   setTimeout(() => {
     const q = document.getElementById('qp-qty'); if (!q) return;
-    q.focus(); q.select();
+    const fe = o.noQty ? (document.getElementById('qp-disc') || q) : q; fe.focus(); try { fe.select(); } catch(_) {}
     const h = e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); window.__noEnterUntil = Date.now() + 500; if (e.repeat || Date.now() - qtyPopupOpenedAt < 450) return; document.getElementById('modal-ok')?.click(); } };
-    q.addEventListener('keydown', h); document.getElementById('qp-disc')?.addEventListener('keydown', h);
+    q.addEventListener('keydown', h); fe.addEventListener('keydown', h); document.getElementById('qp-disc')?.addEventListener('keydown', h);
     document.querySelectorAll('input[name="qp-opt"]').forEach(r => r.addEventListener('keydown', h));
   }, 70);
 }
@@ -1580,7 +1583,7 @@ function promptAccessoryAdd(accId) {
   const a = DB.accessories.find(x => x.id === accId); if (!a) return;
   const o = accSaleOptions(a);
   if (!o.length) { toast(`${a.name}: no more stock`,'warn',3000); return; }
-  showQtyPopup({ title:'Add to cart', name:a.name, options:o.map(x => ({ key:x.batch_id, label:`${fmtInt(x.price)} each`, sub: canSeeCost() ? `cost ${fmtInt(x.cost)}` : '', avail:x.avail })), onConfirm:(key, qty, disc) => addAccessoryToCart(a.id, key, qty, disc) });
+  showQtyPopup({ title:'Add to cart', name:a.name, options:o.map(x => ({ key:x.batch_id, label:`${fmtInt(x.price)} each`, sub: canSeeCost() ? `cost ${fmtInt(x.cost)}` : '', avail:x.avail })), onConfirm:(key, qty, disc) => { addAccessoryToCart(a.id, key, qty, disc); salesAfterAdd(); } });
 }
 function promptPhoneProductAdd(pid) {
   const p = DB.products.find(x => x.id === pid); if (!p) return;
@@ -1589,7 +1592,7 @@ function promptPhoneProductAdd(pid) {
   const g = {};
   free.forEach(u => { const k = (Number(u.sale_price)||0) + '|' + (Number(u.cost_price)||0); (g[k] = g[k] || { price:Number(u.sale_price)||0, cost:Number(u.cost_price)||0, units:[] }).units.push(u); });
   const opts = Object.entries(g).map(([k,v]) => ({ key:k, label:`${fmtInt(v.price)} each`, sub: canSeeCost() ? `cost ${fmtInt(v.cost)}` : '', avail:v.units.length }));
-  showQtyPopup({ title:'Add phones to cart', name:[p.brand,p.model,p.storage,p.color].filter(Boolean).join(' '), options:opts, onConfirm:(k, qty, disc) => { g[k].units.slice().sort((a,b) => a.id - b.id).slice(0, qty).forEach(u => { addPhoneToCart(u.id); if (disc) applyCartDiscount(cart.find(c => c.type === 'phone' && c.unit_id === u.id), disc.type, disc.val); }); if (disc) renderCart(); } });
+  showQtyPopup({ title:'Add phones to cart', name:[p.brand,p.model,p.storage,p.color].filter(Boolean).join(' '), options:opts, onConfirm:(k, qty, disc) => { g[k].units.slice().sort((a,b) => a.id - b.id).slice(0, qty).forEach(u => { addPhoneToCart(u.id); if (disc) applyCartDiscount(cart.find(c => c.type === 'phone' && c.unit_id === u.id), disc.type, disc.val); }); if (disc) renderCart(); salesAfterAdd(); } });
 }
 function addAccessoryToCart(accId, batchId, qty, disc) {
   const a = DB.accessories.find(x => x.id === accId); if (!a) return false;
@@ -1742,16 +1745,6 @@ function field(label, inputHTML, required=false, hint='') { return `<div class="
 function codeChip(code, isAcc=false, isReload=false, barcode='') { if (!code && !barcode) return ''; let out = ''; if (code) { const cls = isReload ? 'reload' : (isAcc ? 'acc' : ''); out += `<span class="code-chip ${cls}">${esc(code)}</span>`; } if (barcode) out += ` <span class="code-chip barcode">🏷️ ${esc(barcode)}</span>`; return out; }
 function warrantyChip(months) { const m = Number(months) || 0; if (m <= 0) return ''; return `<span class="warranty-chip">🛡️ ${esc(warrantyText(m))}</span>`; }
 
-function onCustNameInput(v) {
-  const drop = document.getElementById('cust-name-suggest'); if (!drop) return;
-  const q = (v||'').trim().toLowerCase(); let matches;
-  if (!q) { matches = DB.customers.slice().sort((a,b)=>b.id-a.id).slice(0, 8); if (!matches.length) { drop.innerHTML = '<div class="cust-suggest-empty">No customers yet</div>'; drop.classList.remove('hidden'); return; } }
-  else { matches = DB.customers.filter(c => (c.name||'').toLowerCase().includes(q) || (c.phone||'').includes(q) || (c.id_number||'').toLowerCase().includes(q)).slice(0, 10); if (!matches.length) { drop.innerHTML = '<div class="cust-suggest-empty">New customer</div>'; drop.classList.remove('hidden'); return; } }
-  drop.innerHTML = matches.map(c => { const bal = Number(c.balance)||0; return `<div class="cust-suggest-item" onmousedown="event.preventDefault()" onclick="pickCustomer(${c.id})"><div class="cust-suggest-avatar">${esc((c.name||'?').charAt(0).toUpperCase())}</div><div class="cust-suggest-info"><div class="strong">${esc(c.name)}</div><div class="muted small">${c.phone ? '📞 '+esc(c.phone) : '<span class="warn">⚠ no phone</span>'}${c.id_number ? ' · 🆔 '+esc(c.id_number) : ''}</div></div>${bal > 0 ? `<span class="danger-c small strong">${fmtInt(bal)}</span>` : ''}</div>`; }).join('');
-  drop.classList.remove('hidden');
-}
-function pickCustomer(id) { const c = DB.customers.find(x=>x.id===id); if (!c) return; const n = document.getElementById('cust-name'); if (n) n.value = c.name || ''; const p = document.getElementById('cust-phone'); if (p) p.value = c.phone || ''; const ie = document.getElementById('cust-idnum'); if (ie && c.id_number) ie.value = c.id_number; const ae = document.getElementById('cust-address'); if (ae && c.address) ae.value = c.address; hideCustSuggest(); updateCreditPreview(); }
-function hideCustSuggest() { const d = document.getElementById('cust-name-suggest'); if (d) d.classList.add('hidden'); }
 
 function showLogin() { document.getElementById('loading-screen').classList.add('hidden'); document.getElementById('login-screen').classList.remove('hidden'); document.getElementById('app-layout').classList.add('hidden'); document.getElementById('login-user-list-wrap').classList.remove('hidden'); document.getElementById('login-pass-wrap').classList.add('hidden'); document.getElementById('login-pass').value = ''; document.getElementById('login-error').classList.add('hidden'); renderLoginUsers(); }
 function renderLoginUsers() { const w = document.getElementById('login-user-list'); if (!w) return; const u = DB.users.filter(x => x.active); if (!u.length) { w.innerHTML = '<p class="muted center small">No active users</p>'; return; } w.innerHTML = u.map(x => { const av = x.photo ? `<img src="${x.photo}" alt="">` : esc((x.name||x.username).charAt(0).toUpperCase()); return `<div class="login-user-card" onclick="selectLoginUser(${x.id})"><div class="login-user-avatar">${av}</div><div style="flex:1;min-width:0"><div class="strong" style="font-size:13px">${esc(x.name)}</div><div class="muted small">@${esc(x.username)} · ${esc(x.role)}</div></div><span style="color:var(--blue);font-size:16px">›</span></div>`; }).join(''); }
@@ -1993,7 +1986,8 @@ const SHORTCUTS = [
   ['F2','Go to Sale and focus the scan / search box'],
   ['F3','Focus the search box on this page'],
   ['F4  or  Ctrl+Enter','Complete sale (open payment)'],
-  ['F6','Sale: switch Phones / Accessories'],
+  ['F6','Sale: next category filter (All / Phones / …)'],
+  ['↑ ↓  then  Enter','Sale: pick an item and add it · Enter on an empty search = complete sale'],
   ['Alt+D','Sale: jump to Discount'],
   ['Alt+C','Sale: clear cart'],
   ['Alt+1 … Alt+9','Open menu item 1 – 9 (hover the menu to see numbers)'],
@@ -2020,7 +2014,7 @@ document.addEventListener('keydown', e => {
   if (k === 'F2') { e.preventDefault(); if (currentView !== 'sales') navigateTo('sales'); setTimeout(() => focusEl(document.getElementById('sales-search-input')), 60); return; }
   if (k === 'F3') { e.preventDefault(); focusEl(document.querySelector('#sales-search-input, #pstock-search, #acc-search, #rep-search, .ios-search input')); return; }
   if (currentView === 'sales' && (k === 'F4' || (k === 'Enter' && e.ctrlKey))) { e.preventDefault(); completeSale(); return; }
-  if (currentView === 'sales' && k === 'F6') { e.preventDefault(); const bs = [...document.querySelectorAll('#sales-seg button')]; if (bs.length) { const i = bs.findIndex(b => b.classList.contains('active')); bs[(i + 1) % bs.length].click(); focusEl(document.getElementById('sales-search-input')); } return; }
+  if (currentView === 'sales' && k === 'F6') { e.preventDefault(); salesCycleCat(); return; }
   if (currentView === 'sales' && e.altKey && e.code === 'KeyD') { e.preventDefault(); focusEl(document.getElementById('discount')); return; }
   if (currentView === 'sales' && e.altKey && e.code === 'KeyC') { e.preventDefault(); if (cart.length && confirm('Clear the cart?')) clearCart(); return; }
   if (e.altKey && /^Digit[1-9]$/.test(e.code)) {
@@ -2415,57 +2409,9 @@ function dashSearch(v){ dashQuery = v; renderDashboard(document.getElementById('
 
 /* ═══ SALES ═══ */
 let cart = [];
-let salesTab = 'phones';
 let salesSearchQ = '';
 
 let pendingCartItems = [];
-function renderSales(root) {
-  cart = pendingCartItems.splice(0); salesSearchQ = '';
-  root.innerHTML = `
-    <div class="view-shell" style="overflow:hidden">
-      <div class="page-head"><h1>New Sale</h1>
-        <div class="head-actions"><button class="ios-pill purple sm" onclick="showReloadSaleModal()">📲 Reload</button><button class="ios-pill teal sm" onclick="addReloadToCart()">➕ Custom Item</button></div>
-      </div>
-      <div class="sale-split">
-        <div class="card sale-left">
-          <div class="sale-search-area">
-            <div class="segmented" id="sales-seg" style="margin-bottom:10px;width:100%">
-              <button class="${salesTab==='phones'?'active':''}" onclick="salesSetTab('phones',this)" style="flex:1">📱 Phones</button>
-              <button class="${salesTab==='accessories'?'active':''}" onclick="salesSetTab('accessories',this)" style="flex:1">📦 Accessories</button>
-              <span class="kbd" style="align-self:center;margin:0 6px" title="Switch Phones / Accessories">F6</span>
-            </div>
-            <div style="display:flex;gap:8px;align-items:center"><div class="ios-search" style="max-width:none;flex:1"><input id="sales-search-input" placeholder="Type to search..." oninput="salesSearch(this.value)" autocomplete="off"><button class="clear" onclick="salesClearSearch()">✕</button></div><button type="button" class="ios-pill blue cam-btn" onclick="openScanner('sales-search-input','salesSearch')">📷</button></div>
-          </div>
-          <div class="sale-results-area" id="search-results-wrap"><div id="search-results"><p class="muted center pad small">Start typing to search items...</p></div></div>
-          <div class="bill-fields">
-            <div class="bill-fields-title">📋 Bill Details</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-              <div class="form-field"><label class="field-label">Customer</label><div class="cust-suggest-wrap"><input id="cust-name" class="ios-input" placeholder="Name..." autocomplete="off" oninput="onCustNameInput(this.value)" onfocus="onCustNameInput(this.value)"><div id="cust-name-suggest" class="cust-suggest hidden"></div></div></div>
-              ${field('Phone', '<input id="cust-phone" class="ios-input" placeholder="07xxxxxxx" autocomplete="off">')}
-            </div>
-            <div id="credit-extra-fields"></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px">
-              <div style="display:none">${field('Payment', `<select id="payment" class="ios-input" style="padding:8px 10px"><option value="cash">💵 Cash</option><option value="card">💳 Card</option><option value="bank">🏦 Bank</option><option value="qr">📱 QR</option></select>`)}</div>
-              ${field('Discount', '<input id="discount" class="ios-input" placeholder="0" value="0" type="number" step="0.01" oninput="updateTotal()" style="padding:8px 10px">', false, '<span class="kbd" style="margin:0">Alt+D</span>')}
-              <div style="display:none">${field('Paid', '<input id="paid" class="ios-input" placeholder="blank=exact" type="number" step="0.01" style="padding:8px 10px" oninput="updateChangeDisplay();updateCreditPreview()">')}</div>
-            </div>
-            <div id="credit-preview" class="small" style="margin-top:6px;display:none"></div>
-          </div>
-        </div>
-        <div class="card sale-right">
-          <h3>🛒 Cart <span class="muted small" id="cart-count" style="float:right;font-weight:500"></span></h3>
-          <div class="sale-cart-area" id="cart-list"></div>
-          <div class="cart-footer">
-            <div class="total-box"><div class="muted small" style="font-weight:700;letter-spacing:.06em">TOTAL</div><div class="total-val" id="total">0.00</div></div>
-            <div class="change-box" id="change-box"><div class="change-label">💰 Change</div><div class="change-val" id="change-val">0</div></div>
-            <div class="row gap" style="margin-top:10px"><button class="ios-pill ghost" style="flex:1" onclick="clearCart()">Clear <span class="kbd">Alt+C</span></button><button class="ios-pill green" style="flex:2" onclick="completeSale()" id="complete-btn">✓ Complete Sale <span class="kbd" style="color:#fff;border-color:rgba(255,255,255,.5);background:rgba(255,255,255,.18)">F4</span></button></div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-  updateSalesSearchPlaceholder();
-  renderCart();
-}
 
 function addReloadToCart() {
   openModal('➕ Add Custom Item', `<div class="form-grid">
@@ -2612,60 +2558,225 @@ function renderReload(root){
 function showSaleById(id){const s=DB.sales.find(x=>x.id===id);if(s)showSaleCompleteModal(id);else toast('Bill not found','error');}
 function exportReloadCSV(){const rows=[['DateTime','Carrier','Type','Amount','Phone','Note','SaleID','User'],...(DB.reload_entries||[]).filter(x=>canSeeCost()||x.type!=='opening').map(x=>[x.created_at,x.carrier,x.type,x.amount,x.phone||'',x.note||'',x.sale_id||'',DB.users.find(u=>u.id===x.user_id)?.name||''])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));a.download=`reload_history_${today()}.csv`;a.click();}
 
-function renderCreditExtraFields(show) {
-  const wrap = document.getElementById('credit-extra-fields'); if (!wrap) return;
-  if (!show) { wrap.innerHTML = ''; wrap.className = ''; return; }
-  if (wrap.classList.contains('credit-fields-active')) return;
-  const oid = document.getElementById('cust-idnum')?.value || '';
-  const oad = document.getElementById('cust-address')?.value || '';
-  wrap.className = 'credit-fields-active';
-  wrap.innerHTML = `<div class="credit-notice">⚠️ Credit — ID & address required</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${field('ID number', `<input id="cust-idnum" class="ios-input" placeholder="NIC" value="${esc(oid)}" style="padding:8px 10px">`, true)}${field('Address', `<input id="cust-address" class="ios-input" placeholder="Address" value="${esc(oad)}" style="padding:8px 10px">`, true)}</div>`;
+/* ═══════════════ NEW SALE PAGE — one combined list, category filter, keyboard flow ═══════════════ */
+let salesCat = 'all', salesResults = [], salesSelIdx = -1, salesSelExplicit = false;
+let saleCust = { name:'', phone:'', idnum:'', address:'', paid:'' };
+function saleCustReset() { saleCust = { name:'', phone:'', idnum:'', address:'', paid:'' }; }
+function renderSales(root) {
+  cart = pendingCartItems.splice(0); salesSearchQ = ''; saleCustReset(); salesResults = []; salesSelIdx = -1; salesSelExplicit = false;
+  root.innerHTML = `
+    <div class="view-shell" style="overflow:hidden">
+      <div class="page-head"><h1>New Sale</h1>
+        <div class="head-actions"><button class="ios-pill purple sm" onclick="showReloadSaleModal()">📲 Reload</button><button class="ios-pill teal sm" onclick="addReloadToCart()">➕ Custom Item</button></div>
+      </div>
+      <div class="sale-split">
+        <div class="card sale-left">
+          <div class="sale-search-area">
+            <div style="display:flex;gap:8px;align-items:center"><div class="ios-search" style="max-width:none;flex:1"><input id="sales-search-input" placeholder="Type to search..." oninput="salesSearch(this.value)" onkeydown="salesKey(event)" autocomplete="off"><button class="clear" onclick="salesClearSearch()">✕</button></div><button type="button" class="ios-pill blue cam-btn" onclick="openScanner('sales-search-input','salesSearch')">📷</button></div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:10px"><div class="sale-cats" id="sales-cats" style="flex:1"></div><span class="kbd" title="Next category">F6</span></div>
+          </div>
+          <div class="sale-results-area" id="search-results-wrap"><div id="search-results"></div></div>
+        </div>
+        <div class="card sale-right">
+          <h3>🛒 Cart <span class="muted small" id="cart-count" style="float:right;font-weight:500"></span></h3>
+          <div class="sale-cart-area" id="cart-list"></div>
+          <div class="cart-footer">
+            ${field('Bill discount', '<input id="discount" class="ios-input" placeholder="0" value="0" type="number" step="0.01" oninput="updateTotal()" style="padding:8px 10px">', false, '<span class="kbd" style="margin:0">Alt+D</span>')}
+            <div class="total-box"><div class="muted small" style="font-weight:700;letter-spacing:.06em">TOTAL</div><div class="total-val" id="total">0.00</div></div>
+            <div class="row gap" style="margin-top:10px"><button class="ios-pill ghost" style="flex:1" onclick="clearCart()">Clear <span class="kbd">Alt+C</span></button><button class="ios-pill green" style="flex:2" onclick="completeSale()" id="complete-btn">✓ Complete Sale <span class="kbd" style="color:#fff;border-color:rgba(255,255,255,.5);background:rgba(255,255,255,.18)">F4</span></button></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  updateSalesSearchPlaceholder(); renderSalesCats(); salesSearch(''); renderCart();
 }
-function updateCreditPreview() {
-  const el = document.getElementById('credit-preview'); if (!el) return;
-  const total = parseFloat(document.getElementById('total')?.textContent.replace(/,/g,'') || 0);
-  const paid = Number(document.getElementById('paid')?.value || 0);
-  if (!total) { el.style.display = 'none'; renderCreditExtraFields(false); return; }
-  const finalPaid = paid === 0 ? total : paid;
-  const bal = Math.max(0, total - finalPaid);
-  if (bal > 0.01) { el.style.display = 'block'; el.innerHTML = `⚠️ Credit: <b class="warn">${fmtInt(bal)}</b>`; renderCreditExtraFields(true); }
-  else { el.style.display = 'none'; renderCreditExtraFields(false); }
+function updateSalesSearchPlaceholder() { const inp = document.getElementById('sales-search-input'); if (!inp) return; inp.placeholder = '🔍 Search phones & accessories — name / code / IMEI / barcode' + (window.matchMedia('(hover:hover) and (min-width:769px)').matches ? '  [F2]' : ''); }
+function salesCatList() {
+  const set = new Set(); let none = false;
+  DB.accessories.forEach(a => { if (a.category) set.add(a.category); else none = true; });
+  const out = [['all','All'], ['phones','📱 Phones'], ...[...set].sort((a,b) => a.localeCompare(b)).map(c => [c, c])];
+  if (none) out.push(['__none','Other']);
+  return out;
 }
-function updateChangeDisplay() {
-  const total = parseFloat(document.getElementById('total')?.textContent.replace(/,/g,'') || 0);
-  const paid = Number(document.getElementById('paid')?.value || 0);
-  const box = document.getElementById('change-box'); const val = document.getElementById('change-val');
-  if (!box || !val) return;
-  if (paid > total && total > 0) { val.textContent = fmtInt(paid - total); box.classList.add('show'); }
-  else box.classList.remove('show');
+function renderSalesCats() {
+  const el = document.getElementById('sales-cats'); if (!el) return;
+  const list = salesCatList(); if (!list.some(x => x[0] === salesCat)) salesCat = 'all';
+  el.innerHTML = list.map(([v,l]) => `<button type="button" class="ios-pill sm ${salesCat===v?'blue':'ghost'}" data-cat="${esc(v)}" onclick="salesSetCat(this.dataset.cat)">${esc(l)}</button>`).join('');
+  const act = el.querySelector('.blue'); if (act && act.scrollIntoView) act.scrollIntoView({ block:'nearest', inline:'nearest' });
 }
-function updateSalesSearchPlaceholder() { const inp = document.getElementById('sales-search-input'); if (!inp) return; inp.placeholder = (salesTab === 'phones' ? '🔍 IMEI / code / brand / model / color...' : '🔍 Name / code / category / barcode...') + (window.matchMedia('(hover:hover) and (min-width:769px)').matches ? '  [F2]' : ''); }
-function salesSetTab(t, btn) { salesTab = t; document.querySelectorAll('#sales-seg button').forEach(b => b.classList.remove('active')); if (btn) btn.classList.add('active'); updateSalesSearchPlaceholder(); const inp = document.getElementById('sales-search-input'); salesSearch(inp ? inp.value : ''); }
-function salesClearSearch() { const inp = document.getElementById('sales-search-input'); if (inp) inp.value = ''; salesSearchQ = ''; document.getElementById('search-results').innerHTML = '<p class="muted center pad small">Start typing to search items...</p>'; if (inp) inp.focus(); }
+function salesSetCat(v) { salesCat = v; renderSalesCats(); const inp = document.getElementById('sales-search-input'); salesSearch(inp ? inp.value : ''); if (inp) inp.focus(); }
+function salesCycleCat() { const list = salesCatList(), i = list.findIndex(x => x[0] === salesCat); salesSetCat(list[(i + 1) % list.length][0]); }
+function salesClearSearch() { const inp = document.getElementById('sales-search-input'); if (inp) inp.value = ''; salesSearchQ = ''; salesSearch(''); if (inp) inp.focus(); }
+function salesAfterAdd() { const inp = document.getElementById('sales-search-input'); if (inp) inp.value = ''; salesSearchQ = ''; salesSearch(''); }
+function salesHighlight() {
+  document.querySelectorAll('#search-results .result-card.kb-sel').forEach(e => e.classList.remove('kb-sel'));
+  if (salesSelIdx < 0) return;
+  const el = document.querySelector(`#search-results [data-ri="${salesSelIdx}"]`);
+  if (el) { el.classList.add('kb-sel'); if (el.scrollIntoView) el.scrollIntoView({ block:'nearest' }); }
+}
+function salesPickIdx(i) { const r = salesResults[i]; if (!r) return; if (r.kind === 'acc') promptAccessoryAdd(r.id); else promptPhoneUnitAdd(r.id); }
+function salesKey(e) {
+  const inp = e.target, n = salesResults.length;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!n) return; e.preventDefault(); salesSelExplicit = true;
+    const d = e.key === 'ArrowDown' ? 1 : -1;
+    salesSelIdx = salesSelIdx < 0 ? (d > 0 ? 0 : n - 1) : (salesSelIdx + d + n) % n;
+    salesHighlight(); return;
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (e.repeat || document.getElementById('modal-root').children.length || Date.now() < (window.__noEnterUntil || 0)) return;
+    if (inp.value.trim() || salesSelExplicit) { if (salesSelIdx >= 0 && salesResults[salesSelIdx]) salesPickIdx(salesSelIdx); }
+    else if (cart.length) completeSale();
+  }
+}
+function promptPhoneUnitAdd(uid) {
+  const u = DB.stock_units.find(x => x.id === uid); if (!u) return;
+  if (cart.some(c => c.type === 'phone' && c.unit_id === uid)) { toast('Already in cart','warn'); return; }
+  const p = DB.products.find(x => x.id === u.product_id) || {};
+  showQtyPopup({ title:'Add to cart', noQty:true, name:[p.brand,p.model,p.storage,p.color].filter(Boolean).join(' ') + (u.imei ? ' · IMEI ' + u.imei : ''),
+    options:[{ key:u.id, label:`${fmtInt(u.sale_price)} each`, sub: canSeeCost() ? `cost ${fmtInt(u.cost_price)}` : '', avail:1 }],
+    onConfirm:(k, qty, disc) => { addPhoneToCart(u.id); if (disc) { applyCartDiscount(cart.find(c => c.type === 'phone' && c.unit_id === u.id), disc.type, disc.val); renderCart(); } salesAfterAdd(); } });
+}
 function salesSearch(v) {
   salesSearchQ = v;
   const res = document.getElementById('search-results'); if (!res) return;
-  const q = v.trim().toLowerCase();
-  if (!q) { res.innerHTML = '<p class="muted center pad small">Start typing to search items...</p>'; return; }
-  { /* exact barcode scan: accessory -> qty popup, unit -> add, product -> qty popup */
+  const q = (v || '').trim().toLowerCase(), cv = canSeeCost();
+  if (q) { /* exact barcode scan -> popup */
     const clearIn = () => { const inp = document.getElementById('sales-search-input'); if (inp) inp.value = ''; salesSearchQ = ''; };
     const acc = DB.accessories.find(a => (a.barcode||'').toLowerCase() === q);
     if (acc) { clearIn(); res.innerHTML = `<p class="muted center pad small">🏷️ ${esc(acc.name)} — choose quantity…</p>`; promptAccessoryAdd(acc.id); return; }
     const un = DB.stock_units.find(u => (u.barcode||'').toLowerCase() === q && u.status === 'in_stock');
-    if (un) { clearIn(); addPhoneToCart(un.id); res.innerHTML = '<p class="muted center pad small">✅ Barcode item added</p>'; return; }
+    if (un) { clearIn(); res.innerHTML = '<p class="muted center pad small">🏷️ Barcode scanned…</p>'; promptPhoneUnitAdd(un.id); return; }
     const pm = DB.products.find(p => (p.barcode||'').toLowerCase() === q);
     if (pm) { clearIn(); res.innerHTML = `<p class="muted center pad small">🏷️ ${esc([pm.brand,pm.model,pm.storage].filter(Boolean).join(' '))} — choose quantity…</p>`; promptPhoneProductAdd(pm.id); return; }
   }
-  if (salesTab === 'phones') {
-    const items = DB.stock_units.filter(u => u.status === 'in_stock').map(u => { const p = DB.products.find(x => x.id === u.product_id) || {}; return { unit_id: u.id, code: p.code || '', brand: p.brand || '', model: p.model || '', storage: p.storage || '', color: p.color || '', imei: u.imei || '', barcode: u.barcode || '', price: Number(u.sale_price) || 0, cost: Number(u.cost_price) || 0, warranty: u.warranty_months || 0 }; }).filter(u => (u.imei||'').toLowerCase().includes(q) || (u.code||'').toLowerCase().includes(q) || (u.brand||'').toLowerCase().includes(q) || (u.model||'').toLowerCase().includes(q) || (u.color||'').toLowerCase().includes(q) || (u.storage||'').toLowerCase().includes(q) || (u.barcode||'').toLowerCase().includes(q));
-    if (!items.length) res.innerHTML = '<p class="muted center pad small">No matching phones</p>';
-    else res.innerHTML = items.slice(0,40).map(u => { const ic = cart.some(c => c.type==='phone' && c.unit_id === u.unit_id); return `<div class="result-card ${ic?'disabled':''}" onclick="${ic?'':`addPhoneToCart(${u.unit_id})`}"><div class="item-info"><div class="row gap" style="margin-bottom:3px;flex-wrap:wrap">${codeChip(u.code,false,false,u.barcode)}<span class="strong">${esc(u.brand)} ${esc(u.model)} ${esc(u.storage||'')}</span>${warrantyChip(u.warranty)}</div><div class="muted small">${esc(u.color||'')} · IMEI: ${esc(u.imei||'-')}</div></div><div class="item-actions"><span class="success strong">${fmtInt(u.price)}</span>${ic ? '<span class="muted small">✓ In cart</span>' : '<button class="ios-pill blue sm">+ Add</button>'}</div></div>`; }).join('');
-  } else {
-    const items = DB.accessories.filter(a => (a.qty||0) > 0 || repairHold(a.id) > 0).filter(a => (a.name||'').toLowerCase().includes(q) || (a.category||'').toLowerCase().includes(q) || (a.code||'').toLowerCase().includes(q) || (a.barcode||'').toLowerCase().includes(q));
-    if (!items.length) res.innerHTML = '<p class="muted center pad small">No matching accessories</p>';
-    else res.innerHTML = items.slice(0,40).map(a => { const ic = cart.find(c => c.type==='accessory' && c.accessory_id === a.id); const cq = ic ? ic.qty : 0; return `<div class="result-card" onclick="addAccessoryToCart(${a.id})"><div class="item-info"><div class="row gap" style="margin-bottom:3px;flex-wrap:wrap">${codeChip(a.code,true,false,a.barcode)}<span class="strong">${esc(a.name)}</span>${warrantyChip(a.warranty_months)}</div><div class="muted small">${esc(a.category||'-')} · ${a.qty} in stock${accBatchChips(a)}${repairHold(a.id)>0?` · <span class="warn strong">🔧 ${repairHold(a.id)} in repair</span>`:''}${cq?` · <span class="primary-c">${cq} in cart</span>`:''}</div></div><div class="item-actions"><span class="success strong">${fmtInt(a.sale_price)}</span><button class="ios-pill blue sm">+ Add</button></div></div>`; }).join('');
+  if (!q && salesCat === 'all') { salesResults = []; salesSelIdx = -1; salesSelExplicit = false; res.innerHTML = '<p class="muted center pad small">Type to search, or pick a category above…</p>'; return; }
+  const wantPhones = salesCat === 'all' || salesCat === 'phones', wantAcc = salesCat !== 'phones';
+  let units = [], accs = [];
+  if (wantPhones) units = DB.stock_units.filter(u => u.status === 'in_stock').map(u => { const p = DB.products.find(x => x.id === u.product_id) || {}; return { unit_id:u.id, code:p.code||'', brand:p.brand||'', model:p.model||'', storage:p.storage||'', color:p.color||'', imei:u.imei||'', barcode:u.barcode||'', price:Number(u.sale_price)||0, cost:Number(u.cost_price)||0, warranty:u.warranty_months||0 }; })
+    .filter(u => !q || [u.imei,u.code,u.brand,u.model,u.color,u.storage,u.barcode].some(f => (f||'').toLowerCase().includes(q)));
+  if (wantAcc) accs = DB.accessories.filter(a => (a.qty||0) > 0 || repairHold(a.id) > 0)
+    .filter(a => salesCat === 'all' || (salesCat === '__none' ? !a.category : a.category === salesCat))
+    .filter(a => !q || [a.name,a.category,a.code,a.barcode].some(f => (f||'').toLowerCase().includes(q)));
+  const both = wantPhones && wantAcc;
+  units = units.slice(0, both ? 30 : 60); accs = accs.slice(0, both ? 40 : 60);
+  if (!units.length && !accs.length) { salesResults = []; salesSelIdx = -1; res.innerHTML = '<p class="muted center pad small">No matching items</p>'; return; }
+  salesResults = []; let html = '';
+  const head = t => (both && units.length && accs.length) ? `<div class="muted small" style="padding:8px 4px 2px;font-weight:700">${t}</div>` : '';
+  if (units.length) {
+    html += head('📱 Phones');
+    html += units.map(u => { const inCart = cart.some(c => c.type === 'phone' && c.unit_id === u.unit_id); let attr = '';
+      if (!inCart) { salesResults.push({ kind:'unit', id:u.unit_id }); const i = salesResults.length - 1; attr = `data-ri="${i}" onclick="salesPickIdx(${i})"`; }
+      return `<div class="result-card ${inCart?'disabled':''}" ${attr}><div class="item-info"><div class="row gap" style="margin-bottom:3px;flex-wrap:wrap">${codeChip(u.code,false,false,u.barcode)}<span class="strong">${esc(u.brand)} ${esc(u.model)} ${esc(u.storage||'')}</span>${warrantyChip(u.warranty)}</div><div class="muted small">${esc(u.color||'')} · IMEI: ${esc(u.imei||'-')}</div></div><div class="item-actions"><div style="text-align:right"><span class="success strong">${fmtInt(u.price)}</span>${cv?`<div class="muted small">cost ${fmtInt(u.cost)}</div>`:''}</div>${inCart ? '<span class="muted small">✓ In cart</span>' : '<button class="ios-pill blue sm">+ Add</button>'}</div></div>`; }).join('');
   }
+  if (accs.length) {
+    html += head('📦 Accessories');
+    html += accs.map(a => { const cq = cart.filter(c => c.type === 'accessory' && c.accessory_id === a.id).reduce((s,c) => s + c.qty, 0), hold = repairHold(a.id), out = (a.qty||0) <= 0, live = accLive(a); let attr = '';
+      if (!out) { salesResults.push({ kind:'acc', id:a.id }); const i = salesResults.length - 1; attr = `data-ri="${i}" onclick="salesPickIdx(${i})"`; }
+      return `<div class="result-card ${out?'disabled':''}" ${attr}><div class="item-info"><div class="row gap" style="margin-bottom:3px;flex-wrap:wrap">${codeChip(a.code,true,false,a.barcode)}<span class="strong">${esc(a.name)}</span>${warrantyChip(a.warranty_months)}</div><div class="muted small">${esc(a.category||'-')} · ${a.qty||0} in stock${accBatchChips(a)}${hold>0?` · <span class="warn strong">🔧 ${hold} in repair</span>`:''}${cq?` · <span class="primary-c">${cq} in cart</span>`:''}</div></div><div class="item-actions"><div style="text-align:right"><span class="success strong">${fmtInt(a.sale_price)}</span>${(cv && live.length<=1)?`<div class="muted small">cost ${fmtInt(a.cost_price)}</div>`:''}</div>${out ? '<span class="muted small">Out of stock</span>' : '<button class="ios-pill blue sm">+ Add</button>'}</div></div>`; }).join('');
+  }
+  res.innerHTML = html;
+  salesSelExplicit = false; salesSelIdx = (q && salesResults.length) ? 0 : -1; salesHighlight();
 }
+function updateTotal() {
+  const st = cart.reduce((a,i)=>a+i.price*i.qty,0);
+  const disc = Number(document.getElementById('discount')?.value||0);
+  const total = Math.max(0, st-disc);
+  const el = document.getElementById('total'); if (el) el.textContent = fmt(total);
+}
+function clearCart() {
+  cart = []; saleCustReset(); renderCart();
+  const d = document.getElementById('discount'); if (d) d.value = '0';
+  updateTotal(); salesClearSearch();
+}
+
+const PAY_CR_IDS = ['pay-cname','pay-cphone','pay-cc-idnum','pay-cc-address','pay-cc-paid'];
+function payCustSync() {
+  const g = id => document.getElementById(id), m = { name:'pay-cname', phone:'pay-cphone', idnum:'pay-cc-idnum', address:'pay-cc-address', paid:'pay-cc-paid' };
+  for (const k in m) { const e = g(m[k]); if (e) saleCust[k] = e.value; }
+}
+function payCustLookup(which) {
+  payCustSync(); let c = null;
+  if (which === 'phone' && saleCust.phone.trim()) c = DB.customers.find(x => (x.phone||'').trim() === saleCust.phone.trim());
+  else if (which === 'name' && saleCust.name.trim()) { const m = DB.customers.filter(x => (x.name||'').toLowerCase() === saleCust.name.trim().toLowerCase()); if (m.length === 1) c = m[0]; }
+  if (!c) return;
+  const set = (id, k, v) => { if (v && !String(saleCust[k]||'').trim()) { saleCust[k] = v; const e = document.getElementById(id); if (e) e.value = v; } };
+  set('pay-cname','name',c.name); set('pay-cphone','phone',c.phone); set('pay-cc-idnum','idnum',c.id_number); set('pay-cc-address','address',c.address);
+  if (Number(c.balance) > 0) toast(`${c.name} has an outstanding balance of ${fmtInt(c.balance)}`, 'warn', 4000);
+}
+function payCustBlock(req) {
+  const dl = DB.customers.slice(0, 500).map(c => `<option value="${esc(c.name)}">${esc(c.phone||'')}</option>`).join('');
+  return `<datalist id="pay-cust-list">${dl}</datalist><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">${field(req ? 'Customer name' : 'Customer (optional)', `<input id="pay-cname" class="ios-input" list="pay-cust-list" autocomplete="off" value="${esc(saleCust.name)}" placeholder="Name" oninput="payCustSync()" onchange="payCustLookup('name')" onkeydown="payKey(event)">`, req)}${field('Phone', `<input id="pay-cphone" class="ios-input" type="tel" autocomplete="off" value="${esc(saleCust.phone)}" placeholder="07xxxxxxxx" oninput="payCustSync()" onchange="payCustLookup('phone')" onkeydown="payKey(event)">`, req)}</div>`;
+}
+function renderPayPopup() {
+  const s = payState; if (!s) return;
+  const g = id => document.getElementById(id);
+  let inner = '', focusId = '';
+  const top = `<div class="center" style="margin-bottom:12px"><div class="muted small" style="font-weight:700;letter-spacing:.06em">TOTAL</div><div style="font-size:34px;font-weight:800">${payMoney(s.total)}</div></div>`;
+  const tabs = `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px">${PAY_METHODS.map(([k,l],i) => `<button type="button" title="Alt+${i+1}" class="ios-pill ${s.method===k?'blue':'ghost'} sm" onclick="payMethod('${k}')">${l} <span class="kbd">Alt+${i+1}</span></button>`).join('')}</div>`;
+  const cancelBtn = '<button type="button" class="ios-pill ghost" onclick="closeModal()">Cancel</button>';
+  if (s.step === 'change') {
+    const ch = s.received - s.total;
+    inner = `<div class="center muted small" style="margin-bottom:6px">Customer gave <b>${payMoney(s.received)}</b> · Total <b>${payMoney(s.total)}</b></div><div class="sale-change-hero"><div class="label">💰 Give change</div><div class="val">${payMoney(ch)}</div></div><div class="center muted small kh" style="margin:10px 0">Press <b>Enter</b> to complete the sale</div><div class="row gap" style="justify-content:flex-end"><button type="button" class="ios-pill ghost" onclick="payBack()">← Back</button><button type="button" class="ios-pill green" id="pay-done" style="flex:1" onclick="payFinalize()">✓ Complete Sale</button></div>`;
+    focusId = 'pay-done';
+  } else if (s.method === 'cash') {
+    inner = top + tabs + `<div class="form-field"><label class="field-label">Customer gave</label><input id="pay-recv" class="ios-input" type="number" step="0.01" inputmode="decimal" placeholder="${payMoney(s.total)} (exact)" style="font-size:24px;font-weight:700;text-align:center" onkeydown="payKey(event)" oninput="payRecvLive()"></div><div id="pay-live" class="center small" style="min-height:22px;margin-top:6px"></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:8px 0 10px">${payQuick(s.total).map(v => `<button type="button" class="ios-pill sm" onclick="payQuickSet(${v})">${v===s.total?'Exact':''} ${payMoney(v)}</button>`).join('')}</div>${payCustBlock(false)}<div class="row gap" style="justify-content:flex-end;margin-top:12px">${cancelBtn}<button type="button" class="ios-pill green" onclick="payToChange()">Next ⏎</button></div>`;
+    focusId = 'pay-recv';
+  } else if (s.method === 'credit') {
+    const inp = (id, v, ph, type='text', extra='') => `<input id="${id}" class="ios-input" type="${type}" value="${esc(v)}" placeholder="${ph}" oninput="payCustSync();${extra}" onkeydown="payKey(event)">`;
+    inner = top + tabs + `<div class="credit-notice" style="background:rgba(255,159,10,.15);border-color:rgba(255,159,10,.6);color:var(--orange);font-size:12px;padding:8px 12px;margin-bottom:6px">⚠️ Credit sale — customer details required</div>${payCustBlock(true)}<div class="form-grid" style="margin-top:6px">${field('ID number (NIC)', inp('pay-cc-idnum', saleCust.idnum, '200012345678'), true)}${field('Address', inp('pay-cc-address', saleCust.address, 'Full address'), true)}${field('Paid now (optional)', inp('pay-cc-paid', saleCust.paid, '0', 'number', 'payCreditLive()'))}</div><div id="pay-live" class="center small" style="min-height:22px;margin:8px 0"></div><div class="row gap" style="justify-content:flex-end">${cancelBtn}<button type="button" class="ios-pill green" onclick="payFinalize()">✓ Complete Credit Sale</button></div>`;
+    focusId = !saleCust.name.trim() ? 'pay-cname' : (!saleCust.phone.trim() ? 'pay-cphone' : (!saleCust.idnum.trim() ? 'pay-cc-idnum' : (!saleCust.address.trim() ? 'pay-cc-address' : 'pay-cc-paid')));
+  } else {
+    const lbl = PAY_METHODS.find(m => m[0] === s.method)[1];
+    inner = top + tabs + `<div class="center" style="margin:6px 0 10px">Customer pays <b>${payMoney(s.total)}</b> by <b>${lbl}</b></div>${payCustBlock(false)}<div class="center muted small kh" style="margin:10px 0">Press <b>Enter</b> to complete</div><div class="row gap" style="justify-content:flex-end">${cancelBtn}<button type="button" class="ios-pill green" id="pay-done" style="flex:1" onclick="payFinalize()">✓ Complete Sale</button></div>`;
+    focusId = 'pay-done';
+  }
+  const root = document.getElementById('modal-root');
+  if (!g('pay-inner')) root.innerHTML = `<div class="modal-bg" onclick="if(event.target===this) closeModal()"><div class="modal" style="max-width:460px"><h2>💰 Payment</h2><div id="pay-inner"></div></div></div>`;
+  g('pay-inner').innerHTML = inner;
+  if (s.method === 'credit') payCreditLive();
+  setTimeout(() => { const el = g(focusId); if (el) { el.focus(); try { if (el.select && el.tagName === 'INPUT') el.select(); } catch(_) {} } }, 30);
+}
+function payKey(e) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault(); e.stopPropagation(); window.__noEnterUntil = Date.now() + 400;
+  const s = payState; if (!s || e.repeat) return;
+  const id = e.target.id;
+  if (s.method === 'credit') { const i = PAY_CR_IDS.indexOf(id); if (i >= 0 && i < PAY_CR_IDS.length - 1) { const n = document.getElementById(PAY_CR_IDS[i+1]); if (n) { n.focus(); try { n.select(); } catch(_) {} } } else payFinalize(); return; }
+  if (id === 'pay-cname') { const n = document.getElementById('pay-cphone'); if (n) { n.focus(); try { n.select(); } catch(_) {} } return; }
+  if (s.method === 'cash') payToChange(); else payFinalize();
+}
+function payFinalize() {
+  const s = payState; if (!s || s.busy) return;
+  if (s.step === 'change' && Date.now() - s.changeAt < 300) return;
+  payCustSync();
+  const name = saleCust.name.trim(), phone = saleCust.phone.trim(), idnum = (saleCust.idnum||'').trim(), address = (saleCust.address||'').trim();
+  let method = s.method, paidFinal = s.total, change = 0, balance = 0, custInfo = { name, phone, idnum:'', address:'' };
+  if (s.method === 'cash') {
+    paidFinal = s.received > 0 ? s.received : s.total; change = Math.max(0, paidFinal - s.total);
+  } else if (s.method === 'credit') {
+    const paid = Number(saleCust.paid||0), fx = id => { const e = document.getElementById(id); if (e) e.focus(); };
+    if (!name) { toast('Name required','error'); fx('pay-cname'); return; }
+    if (!phone) { toast('Phone required','error'); fx('pay-cphone'); return; }
+    if (!idnum) { toast('ID required','error'); fx('pay-cc-idnum'); return; }
+    if (!address) { toast('Address required','error'); fx('pay-cc-address'); return; }
+    if (paid < 0 || paid + 0.009 >= s.total) { toast('Paid amount covers the total — use Cash instead','warn',3500); return; }
+    method = 'cash'; paidFinal = paid; balance = Math.max(0, s.total - paid);
+    custInfo = { name, phone, idnum, address };
+  }
+  s.busy = true;
+  const disc = s.disc, total = s.total;
+  window.__noEnterUntil = Date.now() + 500;
+  closeModal(); payState = null;
+  finalizeSale({ disc, paidFinal, total, change, balance, method, custInfo, auto:true });
+}
+function payCreditLive() {
+  const s = payState, el = document.getElementById('pay-live'); if (!s || !el) return;
+  const p = Number(document.getElementById('pay-cc-paid')?.value||0);
+  el.innerHTML = `Balance on credit: <b class="warn">${payMoney(Math.max(0, s.total - p))}</b>`;
+}
+
 function addPhoneToCart(unitId) {
   if (cart.some(c => c.type==='phone' && c.unit_id === unitId)) { toast('Already in cart','warn'); return; }
   const u = DB.stock_units.find(x => x.id === unitId); if (!u) return;
@@ -2690,25 +2801,9 @@ function renderCart() {
   updateTotal();
 }
 function removeFromCart(i){ cart.splice(i,1); renderCart(); const inp = document.getElementById('sales-search-input'); if (inp) salesSearch(inp.value); }
-function clearCart() {
-  cart=[]; renderCart();
-  ['cust-name','cust-phone','paid','cust-idnum','cust-address'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
-  const d = document.getElementById('discount'); if(d) d.value='0';
-  salesClearSearch(); hideCustSuggest(); renderCreditExtraFields(false);
-  const cp = document.getElementById('credit-preview'); if (cp) cp.style.display='none';
-  const cb = document.getElementById('change-box'); if (cb) cb.classList.remove('show');
-}
-function updateTotal() {
-  const st = cart.reduce((a,i)=>a+i.price*i.qty,0);
-  const disc = Number(document.getElementById('discount')?.value||0);
-  const total = Math.max(0, st-disc);
-  const el = document.getElementById('total'); if (el) el.textContent = fmt(total);
-  updateCreditPreview(); updateChangeDisplay();
-}
 /* ═══ PAYMENT POPUP (Complete Sale) ═══ */
 let payState = null;
 const PAY_METHODS = [['cash','💵 Cash'],['credit','🧾 Credit'],['card','💳 Card'],['bank','🏦 Bank'],['qr','📱 QR']];
-const PAY_CR_IDS = ['pay-cc-name','pay-cc-phone','pay-cc-idnum','pay-cc-address','pay-cc-paid'];
 function payMoney(n) { n = Number(n)||0; return Math.abs(n - Math.round(n)) < 0.005 ? fmtInt(n) : fmt(n); }
 function payQuick(total) { const s = new Set([Math.round(total*100)/100]); [100,500,1000,5000].forEach(u => { const v = Math.ceil(total/u)*u; if (v >= total) s.add(v); }); return [...s].sort((a,b) => a-b).slice(0,4); }
 function completeSale() {
@@ -2721,37 +2816,6 @@ function completeSale() {
   window.__refocusSales = true;
   renderPayPopup();
 }
-function renderPayPopup() {
-  const s = payState; if (!s) return;
-  const g = id => document.getElementById(id);
-  let inner = '', focusId = '';
-  const top = `<div class="center" style="margin-bottom:12px"><div class="muted small" style="font-weight:700;letter-spacing:.06em">TOTAL</div><div style="font-size:34px;font-weight:800">${payMoney(s.total)}</div></div>`;
-  const tabs = `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px">${PAY_METHODS.map(([k,l],i) => `<button type="button" title="Alt+${i+1}" class="ios-pill ${s.method===k?'blue':'ghost'} sm" onclick="payMethod('${k}')">${l} <span class="kbd">Alt+${i+1}</span></button>`).join('')}</div>`;
-  const cancelBtn = '<button type="button" class="ios-pill ghost" onclick="closeModal()">Cancel</button>';
-  if (s.step === 'change') {
-    const ch = s.received - s.total;
-    inner = `<div class="center muted small" style="margin-bottom:6px">Customer gave <b>${payMoney(s.received)}</b> · Total <b>${payMoney(s.total)}</b></div><div class="sale-change-hero"><div class="label">💰 Give change</div><div class="val">${payMoney(ch)}</div></div><div class="center muted small kh" style="margin:10px 0">Press <b>Enter</b> to complete the sale</div><div class="row gap" style="justify-content:flex-end"><button type="button" class="ios-pill ghost" onclick="payBack()">← Back</button><button type="button" class="ios-pill green" id="pay-done" style="flex:1" onclick="payFinalize()">✓ Complete Sale</button></div>`;
-    focusId = 'pay-done';
-  } else if (s.method === 'cash') {
-    inner = top + tabs + `<div class="form-field"><label class="field-label">Customer gave</label><input id="pay-recv" class="ios-input" type="number" step="0.01" inputmode="decimal" placeholder="${payMoney(s.total)} (exact)" style="font-size:24px;font-weight:700;text-align:center" onkeydown="payKey(event)" oninput="payRecvLive()"></div><div id="pay-live" class="center small" style="min-height:22px;margin-top:6px"></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:8px 0 14px">${payQuick(s.total).map(v => `<button type="button" class="ios-pill sm" onclick="payQuickSet(${v})">${v===s.total?'Exact':''} ${payMoney(v)}</button>`).join('')}</div><div class="row gap" style="justify-content:flex-end">${cancelBtn}<button type="button" class="ios-pill green" onclick="payToChange()">Next ⏎</button></div>`;
-    focusId = 'pay-recv';
-  } else if (s.method === 'credit') {
-    const pn = g('cust-name')?.value.trim() || '', pp = g('cust-phone')?.value.trim() || '';
-    const ex = pp ? DB.customers.find(c => (c.phone||'').trim() === pp) : null;
-    const nm = pn || ex?.name || '', idn = g('cust-idnum')?.value.trim() || ex?.id_number || '', ad = g('cust-address')?.value.trim() || ex?.address || '';
-    const inp = (id, v, ph, type='text') => `<input id="${id}" class="ios-input" type="${type}" value="${esc(v)}" placeholder="${ph}" onkeydown="payKey(event)" ${id==='pay-cc-paid'?'oninput="payCreditLive()"':''}>`;
-    inner = top + tabs + `<div class="credit-notice" style="background:rgba(255,159,10,.15);border-color:rgba(255,159,10,.6);color:var(--orange);font-size:12px;padding:8px 12px;margin-bottom:10px">⚠️ Credit sale — customer details required</div><div class="form-grid">${field('Customer name', inp('pay-cc-name', nm, 'Name'), true)}${field('Phone number', inp('pay-cc-phone', pp, '07xxxxxxxx'), true)}${field('ID number (NIC)', inp('pay-cc-idnum', idn, '200012345678'), true)}${field('Address', inp('pay-cc-address', ad, 'Full address'), true)}${field('Paid now (optional)', inp('pay-cc-paid', '', '0', 'number'))}</div><div id="pay-live" class="center small" style="min-height:22px;margin:8px 0"></div><div class="row gap" style="justify-content:flex-end">${cancelBtn}<button type="button" class="ios-pill green" onclick="payFinalize()">✓ Complete Credit Sale</button></div>`;
-    focusId = !nm ? 'pay-cc-name' : (!pp ? 'pay-cc-phone' : (!idn ? 'pay-cc-idnum' : (!ad ? 'pay-cc-address' : 'pay-cc-paid')));
-  } else {
-    const lbl = PAY_METHODS.find(m => m[0] === s.method)[1];
-    inner = top + tabs + `<div class="center" style="margin:6px 0 16px">Customer pays <b>${payMoney(s.total)}</b> by <b>${lbl}</b></div><div class="center muted small kh" style="margin-bottom:10px">Press <b>Enter</b> to complete</div><div class="row gap" style="justify-content:flex-end">${cancelBtn}<button type="button" class="ios-pill green" id="pay-done" style="flex:1" onclick="payFinalize()">✓ Complete Sale</button></div>`;
-    focusId = 'pay-done';
-  }
-  const root = document.getElementById('modal-root');
-  if (!g('pay-inner')) root.innerHTML = `<div class="modal-bg" onclick="if(event.target===this) closeModal()"><div class="modal" style="max-width:440px"><h2>💰 Payment</h2><div id="pay-inner"></div></div></div>`;
-  g('pay-inner').innerHTML = inner;
-  setTimeout(() => { const el = g(focusId); if (el) { el.focus(); try { if (el.select && el.tagName === 'INPUT') el.select(); } catch(_) {} } }, 30);
-}
 function payMethod(m) { if (!payState) return; payState.method = m; payState.step = 'pay'; renderPayPopup(); }
 function payBack() { if (!payState) return; payState.step = 'pay'; renderPayPopup(); }
 function payRecvLive() {
@@ -2759,11 +2823,6 @@ function payRecvLive() {
   if (v === '' ) { el.innerHTML = ''; return; }
   const r = Number(v)||0;
   el.innerHTML = r + 0.009 >= s.total ? `<span class="success strong">Change: ${payMoney(Math.max(0, r - s.total))}</span>` : `<span class="warn strong">Short by ${payMoney(s.total - r)} — use Credit for partial payment</span>`;
-}
-function payCreditLive() {
-  const s = payState, el = document.getElementById('pay-live'); if (!s || !el) return;
-  const p = Number(document.getElementById('pay-cc-paid')?.value||0);
-  el.innerHTML = `Balance on credit: <b class="warn">${payMoney(Math.max(0, s.total - p))}</b>`;
 }
 function payQuickSet(v) { const el = document.getElementById('pay-recv'); if (el) el.value = v; payToChange(); }
 function payToChange() {
@@ -2774,38 +2833,6 @@ function payToChange() {
   s.received = v;
   if (v - s.total < 0.01) { payFinalize(); return; }
   s.step = 'change'; s.changeAt = Date.now(); renderPayPopup();
-}
-function payKey(e) {
-  if (e.key !== 'Enter') return;
-  e.preventDefault(); e.stopPropagation(); window.__noEnterUntil = Date.now() + 400;
-  const s = payState; if (!s || e.repeat) return;
-  if (s.method === 'cash') { payToChange(); return; }
-  if (s.method === 'credit') { const i = PAY_CR_IDS.indexOf(e.target.id); if (i >= 0 && i < PAY_CR_IDS.length - 1) { const n = document.getElementById(PAY_CR_IDS[i+1]); if (n) { n.focus(); try { n.select(); } catch(_) {} } } else payFinalize(); }
-}
-function payFinalize() {
-  const s = payState; if (!s || s.busy) return;
-  if (s.step === 'change' && Date.now() - s.changeAt < 300) return;
-  const g = id => document.getElementById(id);
-  const pageName = g('cust-name')?.value.trim() || '', pagePhone = g('cust-phone')?.value.trim() || '';
-  let method = s.method, paidFinal = s.total, change = 0, balance = 0, custInfo = { name:pageName, phone:pagePhone, idnum:'', address:'' };
-  if (s.method === 'cash') {
-    paidFinal = s.received > 0 ? s.received : s.total; change = Math.max(0, paidFinal - s.total);
-  } else if (s.method === 'credit') {
-    const name = g('pay-cc-name').value.trim(), phone = g('pay-cc-phone').value.trim(), idnum = g('pay-cc-idnum').value.trim(), address = g('pay-cc-address').value.trim();
-    const paid = Number(g('pay-cc-paid').value||0);
-    if (!name) { toast('Name required','error'); g('pay-cc-name').focus(); return; }
-    if (!phone) { toast('Phone required','error'); g('pay-cc-phone').focus(); return; }
-    if (!idnum) { toast('ID required','error'); g('pay-cc-idnum').focus(); return; }
-    if (!address) { toast('Address required','error'); g('pay-cc-address').focus(); return; }
-    if (paid < 0 || paid + 0.009 >= s.total) { toast('Paid amount covers the total — use Cash instead','warn',3500); return; }
-    method = 'cash'; paidFinal = paid; balance = Math.max(0, s.total - paid);
-    custInfo = { name, phone, idnum, address };
-  }
-  s.busy = true;
-  const disc = s.disc, total = s.total;
-  window.__noEnterUntil = Date.now() + 500;
-  closeModal(); payState = null;
-  finalizeSale({ disc, paidFinal, total, change, balance, method, custInfo, auto:true });
 }
 let postOpenedAt = 0;
 function postSaleActions(saleId) {
@@ -3261,7 +3288,7 @@ function deliverRepair(id) {
     const model = ((r.device_brand||'') + ' ' + (r.device_model||'')).trim();
     pendingCartItems.push({ type:'repair', repair_id:r.id, code:r.job_no, desc:`Repair — ${model}${r.imei?' · IMEI '+r.imei:''}${paid>0?` (Total ${fmtInt(fin)} − advance ${fmtInt(paid)})`:''}`, price:bal, qty:1, cost:bal, warranty_months:0, handover:{ add, final:fin, note } });
     navigateTo('sales');
-    setTimeout(() => { renderCart(); const n=document.getElementById('cust-name'), p=document.getElementById('cust-phone'); if (c && n && !n.value) n.value = c.name||''; if (c && p && !p.value) p.value = c.phone||''; toast('Repair added to bill','success'); }, 60);
+    setTimeout(() => { renderCart(); if (c) { if (!saleCust.name) saleCust.name = c.name||''; if (!saleCust.phone) saleCust.phone = c.phone||''; } toast('Repair added to bill','success'); }, 60);
   }, 'Add to Bill');
 }
 
@@ -3915,8 +3942,6 @@ function printRepairReceipt(repairId) {
 
 /* ═══ GLOBAL CLICK ═══ */
 document.addEventListener('mousedown', (e) => {
-  const s = document.getElementById('cust-name-suggest');
-  if (s && !s.classList.contains('hidden')) { const inS = e.target.closest('#cust-name-suggest'); const inN = e.target.closest('#cust-name'); if (!inS && !inN) hideCustSuggest(); }
   if (isMobile() && document.body.classList.contains('sidebar-open-mobile')) { const iS = e.target.closest('#sidebar'); const mB = e.target.closest('[data-more]'); if (!iS && !mB) document.body.classList.remove('sidebar-open-mobile'); }
 });
 
