@@ -5,9 +5,177 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#070710">
 <title>Look Mobile</title>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js">
+
+/* v7: barcode-aware stock check PDF and one combined supplier order list */
+function repStockCheckPDF(o) {
+  const shop = DB.settings.shop_name || 'Shop', date = today();
+  let units = [], accs = [];
+  if (o.scope !== 'acc') { units = DB.stock_units.filter(u => u.status === 'in_stock'); units = o.all ? units.sort((a,b) => a.product_id - b.product_id) : repShuffle(units).slice(0, o.np); }
+  if (o.scope !== 'phones') { accs = DB.accessories.filter(a => (a.qty||0) > 0 && (!o.cat || a.category === o.cat)); accs = o.all ? accs.sort((a,b) => (a.name||'').localeCompare(b.name||'')) : repShuffle(accs).slice(0, o.na); }
+  if (!units.length && !accs.length) return null;
+  const d = pdfDoc({ title:`Stock check ${date}`, footer:`${shop} · stock check sheet · ${new Date().toLocaleString()}` });
+  d.banner(shop, 'Stock Check Sheet', repDateLong(date), o.all ? 'Full list' : 'Random sample');
+  d.kpis([{ label:'ITEMS TO CHECK', value:String(units.length + accs.length) }, { label:'PHONES', value:String(units.length) }, { label:'ACCESSORIES', value:String(accs.length) }, { label:'CHECK TYPE', value:o.blind ? 'Blind' : 'Normal', sub:o.blind ? 'system qty hidden' : 'system qty shown' }]);
+  d.note('Count each item physically and write the result in the "Counted" column. Barcode is included for scanning / matching. Mark differences under "Remark".');
+  const sysCol = o.blind ? [] : [{ h:'System', w:.8, align:'center' }];
+  if (units.length) {
+    d.h2('Phones (' + units.length + ')');
+    d.table([{ h:'#', w:.45 }, { h:'Code', w:1.0 }, { h:'Phone', w:2.5 }, { h:'IMEI', w:1.75 }, { h:'Barcode', w:1.55 }].concat(sysCol, [{ h:'Counted', w:.85 }, { h:'Remark', w:1.7 }]),
+      units.map((u, i) => { const p = DB.products.find(x => x.id === u.product_id) || {}; return [String(i + 1), p.code || '', `${p.brand||''} ${p.model||''} ${p.storage||''} ${p.color||''}`.replace(/\s+/g, ' ').trim(), u.imei || '-', u.barcode || p.barcode || '-'].concat(o.blind ? [] : ['1'], ['', '']); }), { minRowH:22, grid:true });
+  }
+  if (accs.length) {
+    d.h2('Accessories (' + accs.length + ')');
+    d.table([{ h:'#', w:.45 }, { h:'Code', w:1.0 }, { h:'Item', w:2.7 }, { h:'Category', w:1.35 }, { h:'Barcode', w:1.65 }].concat(sysCol, [{ h:'Counted', w:.85 }, { h:'Remark', w:1.7 }]),
+      accs.map((a, i) => [String(i + 1), a.code || '', a.name, a.category || '-', a.barcode || '-'].concat(o.blind ? [] : [String(a.qty||0)], ['', ''])), { minRowH:22, grid:true });
+  }
+  d.sign([`Checked by${o.by ? ': ' + o.by : ''}`, 'Date', 'Verified by']);
+  return { blob: new Blob([d.finish()], { type:'application/pdf' }), name:`stock-check-${date}.pdf`, text:'', kind:'stock' };
+}
+
+function showAllPendingOrderItems() {
+  const items = (DB.order_items||[]).filter(it => it.status === 'pending' || it.status === 'not_found');
+  if (!items.length) { toast('No pending items to send','warn'); return; }
+  const rows = items.map(it => {
+    const order = (DB.orders||[]).find(o => Number(o.id)===Number(it.order_id));
+    return `<label class="ord-item pending" style="cursor:pointer"><input type="checkbox" class="all-ord-chk" data-iid="${Number(it.id)}" checked><div class="ord-item-info"><div class="strong small">${esc(it.description)} × ${Number(it.qty)||1}</div><div class="muted small">${esc(order?.order_no||'Order')} · ${esc(order?.customer_name||'Walk-in')}${it.status==='not_found'?' · Previously not found':''}</div>${it.note?`<div class="muted small">📝 ${esc(it.note)}</div>`:''}</div></label>`;
+  }).join('');
+  openModal(`📦 All Pending Order Items (${items.length})`, `<div class="credit-notice">Select all the items you want to send together to one supplier. Items from different saved orders will be combined into a single WhatsApp message.</div><div class="row gap" style="justify-content:space-between;margin-bottom:8px"><button class="ios-pill sm" onclick="document.querySelectorAll('.all-ord-chk').forEach(x=>x.checked=true)">Select all</button><button class="ios-pill sm" onclick="document.querySelectorAll('.all-ord-chk').forEach(x=>x.checked=false)">Clear</button></div><div style="max-height:48vh;overflow:auto">${rows}</div><div class="muted small" style="margin-top:8px">Selected items: <b id="all-ord-selected-count">${items.length}</b></div>`, () => {
+    const selected = [...document.querySelectorAll('.all-ord-chk:checked')].map(x=>Number(x.dataset.iid));
+    if (!selected.length) { toast('Select at least one item','error'); return false; }
+    if (!(DB.suppliers||[]).length) { toast('Add a supplier first','error'); return false; }
+    showSupplierChoiceForCombinedItems(selected);
+    return false;
+  }, 'Choose Supplier & Send');
+  document.querySelectorAll('.all-ord-chk').forEach(x=>x.addEventListener('change',()=>{const el=document.getElementById('all-ord-selected-count');if(el)el.textContent=document.querySelectorAll('.all-ord-chk:checked').length;}));
+}
+function showSupplierChoiceForCombinedItems(itemIds) {
+  const eligible = (DB.suppliers||[]).filter(s=>s.phone);
+  if (!eligible.length) { toast('No supplier has a phone number saved','error'); return; }
+  const html = `<div class="credit-notice">Send <b>${itemIds.length}</b> selected item(s), combined from all orders, to one supplier in one message.</div><div class="form-grid" style="gap:6px">${eligible.map(s=>`<div class="user-select-row" onclick="sendCombinedOrderItems(${JSON.stringify(itemIds)},${Number(s.id)})"><div class="user-select-avatar" style="background:linear-gradient(135deg,var(--wa),var(--teal))">🚚</div><div class="user-select-info"><div class="strong">${esc(s.name)}</div><div class="muted small">📞 ${esc(s.phone)}</div></div><button class="ios-pill wa sm">Send</button></div>`).join('')}</div>`;
+  openModal('📤 Choose Supplier',html,()=>{},'Cancel');
+}
+function sendCombinedOrderItems(itemIds,supplierId) {
+  closeModal();
+  currentOrderIdForDetail = null;
+  sendOrderItemsToSupplier(itemIds.map(Number),Number(supplierId));
+}
+
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js">
+
+/* v7: barcode-aware stock check PDF and one combined supplier order list */
+function repStockCheckPDF(o) {
+  const shop = DB.settings.shop_name || 'Shop', date = today();
+  let units = [], accs = [];
+  if (o.scope !== 'acc') { units = DB.stock_units.filter(u => u.status === 'in_stock'); units = o.all ? units.sort((a,b) => a.product_id - b.product_id) : repShuffle(units).slice(0, o.np); }
+  if (o.scope !== 'phones') { accs = DB.accessories.filter(a => (a.qty||0) > 0 && (!o.cat || a.category === o.cat)); accs = o.all ? accs.sort((a,b) => (a.name||'').localeCompare(b.name||'')) : repShuffle(accs).slice(0, o.na); }
+  if (!units.length && !accs.length) return null;
+  const d = pdfDoc({ title:`Stock check ${date}`, footer:`${shop} · stock check sheet · ${new Date().toLocaleString()}` });
+  d.banner(shop, 'Stock Check Sheet', repDateLong(date), o.all ? 'Full list' : 'Random sample');
+  d.kpis([{ label:'ITEMS TO CHECK', value:String(units.length + accs.length) }, { label:'PHONES', value:String(units.length) }, { label:'ACCESSORIES', value:String(accs.length) }, { label:'CHECK TYPE', value:o.blind ? 'Blind' : 'Normal', sub:o.blind ? 'system qty hidden' : 'system qty shown' }]);
+  d.note('Count each item physically and write the result in the "Counted" column. Barcode is included for scanning / matching. Mark differences under "Remark".');
+  const sysCol = o.blind ? [] : [{ h:'System', w:.8, align:'center' }];
+  if (units.length) {
+    d.h2('Phones (' + units.length + ')');
+    d.table([{ h:'#', w:.45 }, { h:'Code', w:1.0 }, { h:'Phone', w:2.5 }, { h:'IMEI', w:1.75 }, { h:'Barcode', w:1.55 }].concat(sysCol, [{ h:'Counted', w:.85 }, { h:'Remark', w:1.7 }]),
+      units.map((u, i) => { const p = DB.products.find(x => x.id === u.product_id) || {}; return [String(i + 1), p.code || '', `${p.brand||''} ${p.model||''} ${p.storage||''} ${p.color||''}`.replace(/\s+/g, ' ').trim(), u.imei || '-', u.barcode || p.barcode || '-'].concat(o.blind ? [] : ['1'], ['', '']); }), { minRowH:22, grid:true });
+  }
+  if (accs.length) {
+    d.h2('Accessories (' + accs.length + ')');
+    d.table([{ h:'#', w:.45 }, { h:'Code', w:1.0 }, { h:'Item', w:2.7 }, { h:'Category', w:1.35 }, { h:'Barcode', w:1.65 }].concat(sysCol, [{ h:'Counted', w:.85 }, { h:'Remark', w:1.7 }]),
+      accs.map((a, i) => [String(i + 1), a.code || '', a.name, a.category || '-', a.barcode || '-'].concat(o.blind ? [] : [String(a.qty||0)], ['', ''])), { minRowH:22, grid:true });
+  }
+  d.sign([`Checked by${o.by ? ': ' + o.by : ''}`, 'Date', 'Verified by']);
+  return { blob: new Blob([d.finish()], { type:'application/pdf' }), name:`stock-check-${date}.pdf`, text:'', kind:'stock' };
+}
+
+function showAllPendingOrderItems() {
+  const items = (DB.order_items||[]).filter(it => it.status === 'pending' || it.status === 'not_found');
+  if (!items.length) { toast('No pending items to send','warn'); return; }
+  const rows = items.map(it => {
+    const order = (DB.orders||[]).find(o => Number(o.id)===Number(it.order_id));
+    return `<label class="ord-item pending" style="cursor:pointer"><input type="checkbox" class="all-ord-chk" data-iid="${Number(it.id)}" checked><div class="ord-item-info"><div class="strong small">${esc(it.description)} × ${Number(it.qty)||1}</div><div class="muted small">${esc(order?.order_no||'Order')} · ${esc(order?.customer_name||'Walk-in')}${it.status==='not_found'?' · Previously not found':''}</div>${it.note?`<div class="muted small">📝 ${esc(it.note)}</div>`:''}</div></label>`;
+  }).join('');
+  openModal(`📦 All Pending Order Items (${items.length})`, `<div class="credit-notice">Select all the items you want to send together to one supplier. Items from different saved orders will be combined into a single WhatsApp message.</div><div class="row gap" style="justify-content:space-between;margin-bottom:8px"><button class="ios-pill sm" onclick="document.querySelectorAll('.all-ord-chk').forEach(x=>x.checked=true)">Select all</button><button class="ios-pill sm" onclick="document.querySelectorAll('.all-ord-chk').forEach(x=>x.checked=false)">Clear</button></div><div style="max-height:48vh;overflow:auto">${rows}</div><div class="muted small" style="margin-top:8px">Selected items: <b id="all-ord-selected-count">${items.length}</b></div>`, () => {
+    const selected = [...document.querySelectorAll('.all-ord-chk:checked')].map(x=>Number(x.dataset.iid));
+    if (!selected.length) { toast('Select at least one item','error'); return false; }
+    if (!(DB.suppliers||[]).length) { toast('Add a supplier first','error'); return false; }
+    showSupplierChoiceForCombinedItems(selected);
+    return false;
+  }, 'Choose Supplier & Send');
+  document.querySelectorAll('.all-ord-chk').forEach(x=>x.addEventListener('change',()=>{const el=document.getElementById('all-ord-selected-count');if(el)el.textContent=document.querySelectorAll('.all-ord-chk:checked').length;}));
+}
+function showSupplierChoiceForCombinedItems(itemIds) {
+  const eligible = (DB.suppliers||[]).filter(s=>s.phone);
+  if (!eligible.length) { toast('No supplier has a phone number saved','error'); return; }
+  const html = `<div class="credit-notice">Send <b>${itemIds.length}</b> selected item(s), combined from all orders, to one supplier in one message.</div><div class="form-grid" style="gap:6px">${eligible.map(s=>`<div class="user-select-row" onclick="sendCombinedOrderItems(${JSON.stringify(itemIds)},${Number(s.id)})"><div class="user-select-avatar" style="background:linear-gradient(135deg,var(--wa),var(--teal))">🚚</div><div class="user-select-info"><div class="strong">${esc(s.name)}</div><div class="muted small">📞 ${esc(s.phone)}</div></div><button class="ios-pill wa sm">Send</button></div>`).join('')}</div>`;
+  openModal('📤 Choose Supplier',html,()=>{},'Cancel');
+}
+function sendCombinedOrderItems(itemIds,supplierId) {
+  closeModal();
+  currentOrderIdForDetail = null;
+  sendOrderItemsToSupplier(itemIds.map(Number),Number(supplierId));
+}
+
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js">
+
+/* v7: barcode-aware stock check PDF and one combined supplier order list */
+function repStockCheckPDF(o) {
+  const shop = DB.settings.shop_name || 'Shop', date = today();
+  let units = [], accs = [];
+  if (o.scope !== 'acc') { units = DB.stock_units.filter(u => u.status === 'in_stock'); units = o.all ? units.sort((a,b) => a.product_id - b.product_id) : repShuffle(units).slice(0, o.np); }
+  if (o.scope !== 'phones') { accs = DB.accessories.filter(a => (a.qty||0) > 0 && (!o.cat || a.category === o.cat)); accs = o.all ? accs.sort((a,b) => (a.name||'').localeCompare(b.name||'')) : repShuffle(accs).slice(0, o.na); }
+  if (!units.length && !accs.length) return null;
+  const d = pdfDoc({ title:`Stock check ${date}`, footer:`${shop} · stock check sheet · ${new Date().toLocaleString()}` });
+  d.banner(shop, 'Stock Check Sheet', repDateLong(date), o.all ? 'Full list' : 'Random sample');
+  d.kpis([{ label:'ITEMS TO CHECK', value:String(units.length + accs.length) }, { label:'PHONES', value:String(units.length) }, { label:'ACCESSORIES', value:String(accs.length) }, { label:'CHECK TYPE', value:o.blind ? 'Blind' : 'Normal', sub:o.blind ? 'system qty hidden' : 'system qty shown' }]);
+  d.note('Count each item physically and write the result in the "Counted" column. Barcode is included for scanning / matching. Mark differences under "Remark".');
+  const sysCol = o.blind ? [] : [{ h:'System', w:.8, align:'center' }];
+  if (units.length) {
+    d.h2('Phones (' + units.length + ')');
+    d.table([{ h:'#', w:.45 }, { h:'Code', w:1.0 }, { h:'Phone', w:2.5 }, { h:'IMEI', w:1.75 }, { h:'Barcode', w:1.55 }].concat(sysCol, [{ h:'Counted', w:.85 }, { h:'Remark', w:1.7 }]),
+      units.map((u, i) => { const p = DB.products.find(x => x.id === u.product_id) || {}; return [String(i + 1), p.code || '', `${p.brand||''} ${p.model||''} ${p.storage||''} ${p.color||''}`.replace(/\s+/g, ' ').trim(), u.imei || '-', u.barcode || p.barcode || '-'].concat(o.blind ? [] : ['1'], ['', '']); }), { minRowH:22, grid:true });
+  }
+  if (accs.length) {
+    d.h2('Accessories (' + accs.length + ')');
+    d.table([{ h:'#', w:.45 }, { h:'Code', w:1.0 }, { h:'Item', w:2.7 }, { h:'Category', w:1.35 }, { h:'Barcode', w:1.65 }].concat(sysCol, [{ h:'Counted', w:.85 }, { h:'Remark', w:1.7 }]),
+      accs.map((a, i) => [String(i + 1), a.code || '', a.name, a.category || '-', a.barcode || '-'].concat(o.blind ? [] : [String(a.qty||0)], ['', ''])), { minRowH:22, grid:true });
+  }
+  d.sign([`Checked by${o.by ? ': ' + o.by : ''}`, 'Date', 'Verified by']);
+  return { blob: new Blob([d.finish()], { type:'application/pdf' }), name:`stock-check-${date}.pdf`, text:'', kind:'stock' };
+}
+
+function showAllPendingOrderItems() {
+  const items = (DB.order_items||[]).filter(it => it.status === 'pending' || it.status === 'not_found');
+  if (!items.length) { toast('No pending items to send','warn'); return; }
+  const rows = items.map(it => {
+    const order = (DB.orders||[]).find(o => Number(o.id)===Number(it.order_id));
+    return `<label class="ord-item pending" style="cursor:pointer"><input type="checkbox" class="all-ord-chk" data-iid="${Number(it.id)}" checked><div class="ord-item-info"><div class="strong small">${esc(it.description)} × ${Number(it.qty)||1}</div><div class="muted small">${esc(order?.order_no||'Order')} · ${esc(order?.customer_name||'Walk-in')}${it.status==='not_found'?' · Previously not found':''}</div>${it.note?`<div class="muted small">📝 ${esc(it.note)}</div>`:''}</div></label>`;
+  }).join('');
+  openModal(`📦 All Pending Order Items (${items.length})`, `<div class="credit-notice">Select all the items you want to send together to one supplier. Items from different saved orders will be combined into a single WhatsApp message.</div><div class="row gap" style="justify-content:space-between;margin-bottom:8px"><button class="ios-pill sm" onclick="document.querySelectorAll('.all-ord-chk').forEach(x=>x.checked=true)">Select all</button><button class="ios-pill sm" onclick="document.querySelectorAll('.all-ord-chk').forEach(x=>x.checked=false)">Clear</button></div><div style="max-height:48vh;overflow:auto">${rows}</div><div class="muted small" style="margin-top:8px">Selected items: <b id="all-ord-selected-count">${items.length}</b></div>`, () => {
+    const selected = [...document.querySelectorAll('.all-ord-chk:checked')].map(x=>Number(x.dataset.iid));
+    if (!selected.length) { toast('Select at least one item','error'); return false; }
+    if (!(DB.suppliers||[]).length) { toast('Add a supplier first','error'); return false; }
+    showSupplierChoiceForCombinedItems(selected);
+    return false;
+  }, 'Choose Supplier & Send');
+  document.querySelectorAll('.all-ord-chk').forEach(x=>x.addEventListener('change',()=>{const el=document.getElementById('all-ord-selected-count');if(el)el.textContent=document.querySelectorAll('.all-ord-chk:checked').length;}));
+}
+function showSupplierChoiceForCombinedItems(itemIds) {
+  const eligible = (DB.suppliers||[]).filter(s=>s.phone);
+  if (!eligible.length) { toast('No supplier has a phone number saved','error'); return; }
+  const html = `<div class="credit-notice">Send <b>${itemIds.length}</b> selected item(s), combined from all orders, to one supplier in one message.</div><div class="form-grid" style="gap:6px">${eligible.map(s=>`<div class="user-select-row" onclick="sendCombinedOrderItems(${JSON.stringify(itemIds)},${Number(s.id)})"><div class="user-select-avatar" style="background:linear-gradient(135deg,var(--wa),var(--teal))">🚚</div><div class="user-select-info"><div class="strong">${esc(s.name)}</div><div class="muted small">📞 ${esc(s.phone)}</div></div><button class="ios-pill wa sm">Send</button></div>`).join('')}</div>`;
+  openModal('📤 Choose Supplier',html,()=>{},'Cancel');
+}
+function sendCombinedOrderItems(itemIds,supplierId) {
+  closeModal();
+  currentOrderIdForDetail = null;
+  sendOrderItemsToSupplier(itemIds.map(Number),Number(supplierId));
+}
+
+</script>
 <style>
 :root{
   --blue:#0A84FF;--blue-hover:#0070E0;--green:#30D158;--orange:#FF9F0A;--red:#FF453A;--purple:#BF5AF2;--teal:#64D2FF;--wa:#25D366;
@@ -3362,7 +3530,7 @@ let ordersDateFilter = 'all', ordersFromDate = '', ordersToDate = '';
 function renderOrders(root) {
   const supOpts = DB.suppliers.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
   root.innerHTML = `<div class="view-shell">
-    <div class="page-head"><h1>📋 Orders</h1><div class="head-actions"><button class="ios-pill blue" onclick="showOrderCartModal()">+ Add Order to Cart</button></div></div>
+    <div class="page-head"><h1>📋 Orders</h1><div class="head-actions"><button class="ios-pill wa" onclick="showAllPendingOrderItems()">📤 All Pending Items</button><button class="ios-pill blue" onclick="showOrderCartModal()">+ Add Order to Cart</button></div></div>
     <div class="search-row">
       ${searchBar('ord-search','Search order, customer, item...','ordersSearch(this.value)')}
       <select id="ord-sup" class="ios-input" style="max-width:220px" onchange="ordersSetSupplier(this.value)"><option value="all">All Suppliers</option><option value="none">— Unassigned —</option>${supOpts}</select>
@@ -4508,6 +4676,62 @@ renderDashboard=function(root){__renderDashboardFinalFix(root);renderDashboardSu
 
 
 /* v6: due-only supplier balances, previous pending balance visibility and dashboard refresh */
+
+
+/* v7: barcode-aware stock check PDF and one combined supplier order list */
+function repStockCheckPDF(o) {
+  const shop = DB.settings.shop_name || 'Shop', date = today();
+  let units = [], accs = [];
+  if (o.scope !== 'acc') { units = DB.stock_units.filter(u => u.status === 'in_stock'); units = o.all ? units.sort((a,b) => a.product_id - b.product_id) : repShuffle(units).slice(0, o.np); }
+  if (o.scope !== 'phones') { accs = DB.accessories.filter(a => (a.qty||0) > 0 && (!o.cat || a.category === o.cat)); accs = o.all ? accs.sort((a,b) => (a.name||'').localeCompare(b.name||'')) : repShuffle(accs).slice(0, o.na); }
+  if (!units.length && !accs.length) return null;
+  const d = pdfDoc({ title:`Stock check ${date}`, footer:`${shop} · stock check sheet · ${new Date().toLocaleString()}` });
+  d.banner(shop, 'Stock Check Sheet', repDateLong(date), o.all ? 'Full list' : 'Random sample');
+  d.kpis([{ label:'ITEMS TO CHECK', value:String(units.length + accs.length) }, { label:'PHONES', value:String(units.length) }, { label:'ACCESSORIES', value:String(accs.length) }, { label:'CHECK TYPE', value:o.blind ? 'Blind' : 'Normal', sub:o.blind ? 'system qty hidden' : 'system qty shown' }]);
+  d.note('Count each item physically and write the result in the "Counted" column. Barcode is included for scanning / matching. Mark differences under "Remark".');
+  const sysCol = o.blind ? [] : [{ h:'System', w:.8, align:'center' }];
+  if (units.length) {
+    d.h2('Phones (' + units.length + ')');
+    d.table([{ h:'#', w:.45 }, { h:'Code', w:1.0 }, { h:'Phone', w:2.5 }, { h:'IMEI', w:1.75 }, { h:'Barcode', w:1.55 }].concat(sysCol, [{ h:'Counted', w:.85 }, { h:'Remark', w:1.7 }]),
+      units.map((u, i) => { const p = DB.products.find(x => x.id === u.product_id) || {}; return [String(i + 1), p.code || '', `${p.brand||''} ${p.model||''} ${p.storage||''} ${p.color||''}`.replace(/\s+/g, ' ').trim(), u.imei || '-', u.barcode || p.barcode || '-'].concat(o.blind ? [] : ['1'], ['', '']); }), { minRowH:22, grid:true });
+  }
+  if (accs.length) {
+    d.h2('Accessories (' + accs.length + ')');
+    d.table([{ h:'#', w:.45 }, { h:'Code', w:1.0 }, { h:'Item', w:2.7 }, { h:'Category', w:1.35 }, { h:'Barcode', w:1.65 }].concat(sysCol, [{ h:'Counted', w:.85 }, { h:'Remark', w:1.7 }]),
+      accs.map((a, i) => [String(i + 1), a.code || '', a.name, a.category || '-', a.barcode || '-'].concat(o.blind ? [] : [String(a.qty||0)], ['', ''])), { minRowH:22, grid:true });
+  }
+  d.sign([`Checked by${o.by ? ': ' + o.by : ''}`, 'Date', 'Verified by']);
+  return { blob: new Blob([d.finish()], { type:'application/pdf' }), name:`stock-check-${date}.pdf`, text:'', kind:'stock' };
+}
+
+function showAllPendingOrderItems() {
+  const items = (DB.order_items||[]).filter(it => it.status === 'pending' || it.status === 'not_found');
+  if (!items.length) { toast('No pending items to send','warn'); return; }
+  const rows = items.map(it => {
+    const order = (DB.orders||[]).find(o => Number(o.id)===Number(it.order_id));
+    return `<label class="ord-item pending" style="cursor:pointer"><input type="checkbox" class="all-ord-chk" data-iid="${Number(it.id)}" checked><div class="ord-item-info"><div class="strong small">${esc(it.description)} × ${Number(it.qty)||1}</div><div class="muted small">${esc(order?.order_no||'Order')} · ${esc(order?.customer_name||'Walk-in')}${it.status==='not_found'?' · Previously not found':''}</div>${it.note?`<div class="muted small">📝 ${esc(it.note)}</div>`:''}</div></label>`;
+  }).join('');
+  openModal(`📦 All Pending Order Items (${items.length})`, `<div class="credit-notice">Select all the items you want to send together to one supplier. Items from different saved orders will be combined into a single WhatsApp message.</div><div class="row gap" style="justify-content:space-between;margin-bottom:8px"><button class="ios-pill sm" onclick="document.querySelectorAll('.all-ord-chk').forEach(x=>x.checked=true)">Select all</button><button class="ios-pill sm" onclick="document.querySelectorAll('.all-ord-chk').forEach(x=>x.checked=false)">Clear</button></div><div style="max-height:48vh;overflow:auto">${rows}</div><div class="muted small" style="margin-top:8px">Selected items: <b id="all-ord-selected-count">${items.length}</b></div>`, () => {
+    const selected = [...document.querySelectorAll('.all-ord-chk:checked')].map(x=>Number(x.dataset.iid));
+    if (!selected.length) { toast('Select at least one item','error'); return false; }
+    if (!(DB.suppliers||[]).length) { toast('Add a supplier first','error'); return false; }
+    showSupplierChoiceForCombinedItems(selected);
+    return false;
+  }, 'Choose Supplier & Send');
+  document.querySelectorAll('.all-ord-chk').forEach(x=>x.addEventListener('change',()=>{const el=document.getElementById('all-ord-selected-count');if(el)el.textContent=document.querySelectorAll('.all-ord-chk:checked').length;}));
+}
+function showSupplierChoiceForCombinedItems(itemIds) {
+  const eligible = (DB.suppliers||[]).filter(s=>s.phone);
+  if (!eligible.length) { toast('No supplier has a phone number saved','error'); return; }
+  const html = `<div class="credit-notice">Send <b>${itemIds.length}</b> selected item(s), combined from all orders, to one supplier in one message.</div><div class="form-grid" style="gap:6px">${eligible.map(s=>`<div class="user-select-row" onclick="sendCombinedOrderItems(${JSON.stringify(itemIds)},${Number(s.id)})"><div class="user-select-avatar" style="background:linear-gradient(135deg,var(--wa),var(--teal))">🚚</div><div class="user-select-info"><div class="strong">${esc(s.name)}</div><div class="muted small">📞 ${esc(s.phone)}</div></div><button class="ios-pill wa sm">Send</button></div>`).join('')}</div>`;
+  openModal('📤 Choose Supplier',html,()=>{},'Cancel');
+}
+function sendCombinedOrderItems(itemIds,supplierId) {
+  closeModal();
+  currentOrderIdForDetail = null;
+  sendOrderItemsToSupplier(itemIds.map(Number),Number(supplierId));
+}
+
 </script>
 </body>
 </html>
