@@ -2108,7 +2108,7 @@ async function openScanner(inputId, fnName){
   document.getElementById('modal-root').innerHTML = `<div class="modal-bg"><div class="modal"><h2>📷 Scan barcode</h2><div id="modal-body"><div id="scan-box"><video id="scan-video" playsinline muted autoplay></video><div class="scan-line"></div></div><div id="scan-msg" class="muted small center" style="margin-top:8px">Point the camera at the barcode</div></div><div class="row gap" style="justify-content:flex-end;margin-top:14px"><button class="ios-pill ghost" onclick="closeModal()">Cancel</button></div></div></div>`;
   const v=document.getElementById('scan-video'), msg=t=>{const m=document.getElementById('scan-msg'); if(m) m.textContent=t;};
   const st = scanState = {};
-  const found = code => { if(scanState!==st) return; try{navigator.vibrate&&navigator.vibrate(60);}catch(e){} closeModal(); const el=document.getElementById(inputId); if(el) el.value=code; const fn=window[fnName]; if(typeof fn==='function') fn(code); toast('Scanned: '+code,'success'); };
+  const found = code => { if(scanState!==st) return; try{navigator.vibrate&&navigator.vibrate(60);}catch(e){} closeModal(); const el=document.getElementById(inputId); if(el) el.value=code; const fn=fnName==='salesSearch'?salesBarcodeScan:window[fnName]; if(typeof fn==='function') fn(code); toast('Scanned: '+code,'success'); };
   try {
     if('BarcodeDetector' in window){
       st.stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
@@ -2781,8 +2781,23 @@ function salesHighlight() {
   if (el) { el.classList.add('kb-sel'); if (el.scrollIntoView) el.scrollIntoView({ block:'nearest' }); }
 }
 function salesPickIdx(i) { const r = salesResults[i]; if (!r) return; if (r.kind === 'acc') promptAccessoryAdd(r.id); else promptPhoneUnitAdd(r.id); }
+let salesScanStartedAt = 0, salesScanLastAt = 0, salesScanChars = 0;
+function salesBarcodeScan(code) {
+  const q = String(code || '').trim().toLowerCase(); if (!q) return false;
+  const acc = DB.accessories.find(a => (a.barcode||'').toLowerCase() === q);
+  if (acc) { const inp=document.getElementById('sales-search-input'); if(inp) inp.value=''; salesSearchQ=''; const res=document.getElementById('search-results'); if(res) res.innerHTML=`<p class="muted center pad small">🏷️ ${esc(acc.name)} — choose quantity…</p>`; promptAccessoryAdd(acc.id); return true; }
+  const un = DB.stock_units.find(u => (u.barcode||'').toLowerCase() === q && u.status === 'in_stock');
+  if (un) { const inp=document.getElementById('sales-search-input'); if(inp) inp.value=''; salesSearchQ=''; const res=document.getElementById('search-results'); if(res) res.innerHTML='<p class="muted center pad small">🏷️ Barcode scanned…</p>'; promptPhoneUnitAdd(un.id); return true; }
+  const pm = DB.products.find(p => (p.barcode||'').toLowerCase() === q);
+  if (pm) { const inp=document.getElementById('sales-search-input'); if(inp) inp.value=''; salesSearchQ=''; const res=document.getElementById('search-results'); if(res) res.innerHTML=`<p class="muted center pad small">🏷️ ${esc([pm.brand,pm.model,pm.storage].filter(Boolean).join(' '))} — choose quantity…</p>`; promptPhoneProductAdd(pm.id); return true; }
+  return false;
+}
 function salesKey(e) {
-  const inp = e.target, n = salesResults.length;
+  const inp = e.target, n = salesResults.length, now = Date.now();
+  if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    if (!salesScanLastAt || now - salesScanLastAt > 250) { salesScanStartedAt = now; salesScanChars = 0; }
+    salesScanLastAt = now; salesScanChars++;
+  }
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     if (!n) return; e.preventDefault(); salesSelExplicit = true;
     const d = e.key === 'ArrowDown' ? 1 : -1;
@@ -2792,6 +2807,10 @@ function salesKey(e) {
   if (e.key === 'Enter') {
     e.preventDefault();
     if (e.repeat || document.getElementById('modal-root').children.length || Date.now() < (window.__noEnterUntil || 0)) return;
+    const scanDuration = now - salesScanStartedAt;
+    const looksLikeScanner = salesScanChars >= 6 && scanDuration <= 900 && now - salesScanLastAt <= 180;
+    if (looksLikeScanner && salesBarcodeScan(inp.value)) { salesScanStartedAt=0; salesScanLastAt=0; salesScanChars=0; return; }
+    salesScanStartedAt=0; salesScanLastAt=0; salesScanChars=0;
     if (inp.value.trim() || salesSelExplicit) { if (salesSelIdx >= 0 && salesResults[salesSelIdx]) salesPickIdx(salesSelIdx); }
     else if (cart.length) completeSale();
   }
@@ -2808,15 +2827,6 @@ function salesSearch(v) {
   salesSearchQ = v;
   const res = document.getElementById('search-results'); if (!res) return;
   const q = (v || '').trim().toLowerCase(), cv = canSeeCost();
-  if (q) {
-    const clearIn = () => { const inp = document.getElementById('sales-search-input'); if (inp) inp.value = ''; salesSearchQ = ''; };
-    const acc = DB.accessories.find(a => (a.barcode||'').toLowerCase() === q);
-    if (acc) { clearIn(); res.innerHTML = `<p class="muted center pad small">🏷️ ${esc(acc.name)} — choose quantity…</p>`; promptAccessoryAdd(acc.id); return; }
-    const un = DB.stock_units.find(u => (u.barcode||'').toLowerCase() === q && u.status === 'in_stock');
-    if (un) { clearIn(); res.innerHTML = '<p class="muted center pad small">🏷️ Barcode scanned…</p>'; promptPhoneUnitAdd(un.id); return; }
-    const pm = DB.products.find(p => (p.barcode||'').toLowerCase() === q);
-    if (pm) { clearIn(); res.innerHTML = `<p class="muted center pad small">🏷️ ${esc([pm.brand,pm.model,pm.storage].filter(Boolean).join(' '))} — choose quantity…</p>`; promptPhoneProductAdd(pm.id); return; }
-  }
   if (!q && salesCat === 'all') { salesResults = []; salesSelIdx = -1; salesSelExplicit = false; res.innerHTML = '<p class="muted center pad small">Type to search, or pick a category above…</p>'; return; }
   const wantPhones = salesCat === 'all' || salesCat === 'phones', wantAcc = salesCat !== 'phones';
   let units = [], accs = [];
@@ -2843,7 +2853,7 @@ function salesSearch(v) {
       return `<div class="result-card ${out?'disabled':''}" ${attr}><div class="item-info"><div class="row gap" style="margin-bottom:3px;flex-wrap:wrap">${codeChip(a.code,true,false,a.barcode)}<span class="strong">${esc(a.name)}</span>${warrantyChip(a.warranty_months)}</div><div class="muted small">${esc(a.category||'-')} · ${a.qty||0} in stock${accBatchChips(a)}${hold>0?` · <span class="warn strong">🔧 ${hold} in repair</span>`:''}${cq?` · <span class="primary-c">${cq} in cart</span>`:''}</div></div><div class="item-actions"><div style="text-align:right"><span class="success strong">${fmtInt(a.sale_price)}</span>${(cv && live.length<=1)?`<div class="muted small">cost ${fmtInt(a.cost_price)}</div>`:''}</div>${out ? '<span class="muted small">Out of stock</span>' : '<button class="ios-pill blue sm">+ Add</button>'}</div></div>`; }).join('');
   }
   res.innerHTML = html;
-  salesSelExplicit = false; salesSelIdx = (q && salesResults.length) ? 0 : -1; salesHighlight();
+  salesSelExplicit = false; salesSelIdx = -1; salesHighlight();
 }
 function updateTotal() {
   const st = cart.reduce((a,i)=>a+i.price*i.qty,0);
