@@ -876,6 +876,7 @@ body::before{
     <div id="login-user-list-wrap">
       <p class="sub muted">Select your account</p>
       <div id="login-user-list" class="login-users"></div>
+      <button class="ios-pill ghost full" style="margin-top:8px" onclick="resetAdminPassword()">🔐 Forgot Admin Password? Reset</button>
     </div>
     <div id="login-pass-wrap" class="hidden">
       <p class="sub muted" id="login-selected-user">Enter password</p>
@@ -907,7 +908,7 @@ body::before{
         <div class="storage-label" id="storage-label">Connecting...</div>
         <div class="storage-sync-icon" id="sync-icon">🔄</div>
       </div>
-      <div class="user-card">
+      <div class="user-card" onclick="toggleAccountPanel()" role="button" tabindex="0" title="Expand / hide account options" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleAccountPanel()}">
         <div class="avatar" id="user-avatar">A</div>
         <div class="user-info">
           <div class="user-name" id="user-name-display">Admin</div>
@@ -916,11 +917,12 @@ body::before{
       </div>
       <button class="switch-btn" onclick="showSwitchAccount()">🔄 <span>Switch Account</span></button>
       <button class="ios-btn" onclick="showShortcutsHelp()">⌨️ <span>Shortcuts</span> <span class="kbd">F1</span></button>
+      <button class="ios-btn" onclick="openNewPOSWindow()">🗗 <span>Open New Window</span></button>
       <button class="ios-btn" onclick="toggleTheme()">🌗 <span>Theme</span></button>
       <button class="ios-btn danger" onclick="doLogout()">🚪 <span>Logout</span></button>
     </div>
     <div class="sidebar-footer">
-      <div><span class="version-chip" id="version-chip">v4.5</span></div>
+      <div><span class="version-chip" id="version-chip">v4.8</span></div>
       <div class="footer-line"><a class="footer-link" href="https://wa.me/94756947700?text=Hi%20pos-lookmobile!" target="_blank" rel="noopener">pos-lookmobile 0756947700</a></div>
     </div>
   </aside>
@@ -960,9 +962,9 @@ const LS_SAFE_KEY = 'phone_shop_pos_safety_backup';
 const LS_RESET_TOKEN_KEY = 'pos_seen_reset_token';
 const LS_DIRTY_KEY = 'pos_has_unsaved';
 const LS_LAST_SYNC_KEY = 'pos_last_sync_ts';
-const POS_VERSION = 'v4.5';
+const POS_VERSION = 'v4.9';
 
-const SYNC_COLLECTIONS = ['products','stock_units','accessories','customers','sales','sale_items','repairs','credit_payments','returns','stock_adjustments','shops','shop_repairs','shop_payments','suppliers','orders','order_items','cash_transactions','users','staff','salary_payments','expenses','cash_closings','audit_logs','reload_entries','repair_payments','cash_openings','supplier_transactions','supplier_bills','supplier_payments','supplier_checks','repair_parts','free_items'];
+const SYNC_COLLECTIONS = ['products','stock_units','accessories','customers','sales','sale_items','repairs','credit_payments','returns','stock_adjustments','shops','shop_repairs','shop_payments','suppliers','orders','order_items','cash_transactions','users','staff','salary_payments','expenses','cash_closings','audit_logs','reload_entries','repair_payments','cash_openings','supplier_transactions','supplier_bills','supplier_payments','supplier_checks','repair_parts','free_items','developer_notifications'];
 
 const DEFAULT_SETTINGS = { shop_name:'PHONE HUB', shop_address:'123 Main Street, Colombo', shop_phone:'077-0000000', currency:'LKR', low_stock:2, theme:'light', shop_logo: null, print_size: '58mm', brand_name:'pos-lookmobile', brand_phone:'0756947700' };
 const ROLE_PERMS = {
@@ -1303,7 +1305,7 @@ function initSidebar() { try { if (localStorage.getItem('pos_sidebar_hidden') ==
 initSidebar();
 
 function createFreshDB() {
-  const d = { products:[], stock_units:[], accessories:[], customers:[], sales:[], sale_items:[], repairs:[], credit_payments:[], returns:[], stock_adjustments:[], shops:[], shop_repairs:[], shop_payments:[], suppliers:[], orders:[], order_items:[], cash_transactions:[], users:[], staff:[], salary_payments:[], expenses:[], cash_closings:[], audit_logs:[], repair_payments:[], cash_openings:[], supplier_transactions:[], supplier_bills:[], supplier_payments:[], supplier_checks:[], repair_parts:[], free_items:[], settings:{...DEFAULT_SETTINGS}, ids:{products:1,stock_units:1,accessories:1,customers:1,sales:1,sale_items:1,repairs:1,credit_payments:1,returns:1,stock_adjustments:1,shops:1,shop_repairs:1,shop_payments:1,suppliers:1,orders:1,order_items:1,cash_transactions:1,users:1,staff:1,salary_payments:1,expenses:1,cash_closings:1,audit_logs:1,repair_payments:1,reload_entries:1,supplier_bills:1,supplier_payments:1,supplier_checks:1,repair_parts:1,free_items:1} };
+  const d = { products:[], stock_units:[], accessories:[], customers:[], sales:[], sale_items:[], repairs:[], credit_payments:[], returns:[], stock_adjustments:[], shops:[], shop_repairs:[], shop_payments:[], suppliers:[], orders:[], order_items:[], cash_transactions:[], users:[], staff:[], salary_payments:[], expenses:[], cash_closings:[], audit_logs:[], repair_payments:[], cash_openings:[], supplier_transactions:[], supplier_bills:[], supplier_payments:[], supplier_checks:[], repair_parts:[], free_items:[], developer_notifications:[], settings:{...DEFAULT_SETTINGS}, ids:{products:1,stock_units:1,accessories:1,customers:1,sales:1,sale_items:1,repairs:1,credit_payments:1,returns:1,stock_adjustments:1,shops:1,shop_repairs:1,shop_payments:1,suppliers:1,orders:1,order_items:1,cash_transactions:1,users:1,staff:1,salary_payments:1,expenses:1,cash_closings:1,audit_logs:1,repair_payments:1,reload_entries:1,supplier_bills:1,supplier_payments:1,supplier_checks:1,repair_parts:1,free_items:1,developer_notifications:1} };
   initUsers(d); return d;
 }
 function initUsers(d) {
@@ -1448,7 +1450,7 @@ function migrateDB() {
   if (!DB.settings.brand_phone) DB.settings.brand_phone = '0756947700';
   if (!DB.users || !DB.users.length) initUsers(DB);
   if (!DB.ids) DB.ids = {products:1,stock_units:1,accessories:1,customers:1,sales:1,sale_items:1,repairs:1,credit_payments:1,returns:1,stock_adjustments:1,shops:1,shop_repairs:1,shop_payments:1,suppliers:1,orders:1,order_items:1,cash_transactions:1,users:DB.users.length+1};
-  ['accessories','credit_payments','returns','stock_adjustments','shops','shop_repairs','shop_payments','suppliers','orders','order_items','cash_transactions','staff','salary_payments','expenses','cash_closings','audit_logs','reload_entries','repair_payments','cash_openings','supplier_transactions','supplier_bills','supplier_payments','supplier_checks','repair_parts','free_items'].forEach(k => { if (!DB.ids[k]) DB.ids[k] = 1; });
+  ['accessories','credit_payments','returns','stock_adjustments','shops','shop_repairs','shop_payments','suppliers','orders','order_items','cash_transactions','staff','salary_payments','expenses','cash_closings','audit_logs','reload_entries','repair_payments','cash_openings','supplier_transactions','supplier_bills','supplier_payments','supplier_checks','repair_parts','free_items','developer_notifications'].forEach(k => { if (!DB.ids[k]) DB.ids[k] = 1; });
   SYNC_COLLECTIONS.forEach(k => { if (!Array.isArray(DB[k])) DB[k] = []; });
   DB.products.forEach(p => { if (!p.code) p.code = makeProductCode(p.id); if (!p.barcode) p.barcode = makeBarcode(1, p.id); });
   DB.accessories.forEach(a => { if (!a.code) a.code = makeAccessoryCode(a.id); if (a.warranty_months === undefined) a.warranty_months = 0; if (a.barcode === undefined) a.barcode = ''; if (!a.barcode) a.barcode = makeBarcode(2, a.id); });
@@ -1645,15 +1647,17 @@ function showAddAccessory(id) {
     ? `<div class="credit-notice" style="font-size:12px">💲 This item has <b>${live.length} price batches</b> (${live.map(b => `${b.qty} × ${fmtInt(b.price)}`).join(' | ')}). Use <b>Prices</b> to change a batch price and <b>Qty</b> to add stock at a new price.</div>`
     : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${field('Cost', `<input id="na-cost" class="ios-input" type="number" step="0.01" placeholder="0" value="${cur ? cur.cost : ''}">`)}${field('Sale', `<input id="na-price" class="ios-input" type="number" step="0.01" placeholder="0" value="${cur ? cur.price : ''}">`)}</div>`;
   const qtyHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${multi ? field('Total quantity', `<input class="ios-input" value="${a.qty||0}" disabled>`) : field('Quantity', `<input id="na-qty" class="ios-input" type="number" placeholder="0" value="${cur ? cur.qty : 0}">`)}${field('Low stock', `<input id="na-low" class="ios-input" type="number" value="${a?.low_stock_threshold ?? 2}">`)}</div>`;
-  openModal(a?`Edit — ${a.code}`:'Add Stock Item', `<div class="form-grid"><div class="field-hint">🔖 Code: <b style="color:var(--purple)">${esc(pc)}</b></div>${field('Item name', `<input id="na-name" class="ios-input" list="acc-existing-names" oninput="showExistingAccessoryMatches()" placeholder="iPhone 15 Tempered Glass" value="${esc(a?.name||'')}" autofocus><datalist id="acc-existing-names">${existingOptions}</datalist>`, true)}<div id="na-existing-items" class="card pad" style="margin-top:-4px"><span class="muted small">Start typing to find existing stock items.</span></div>${field('Barcode', `<input id="na-barcode" class="ios-input" placeholder="Auto-generated if empty" value="${esc(a?.barcode||'')}">`, false, '🏷️ Leave empty = auto barcode')}${field('Category', `<input id="na-cat" class="ios-input" list="acc-cat-suggest" placeholder="Type or pick" value="${esc(a?.category||'')}"><datalist id="acc-cat-suggest">${cats.map(c=>`<option value="${esc(c)}"></option>`).join('')}</datalist>`)}${field('Supplier', `<select id="na-supplier" class="ios-input"><option value="">— Select supplier —</option>${(DB.suppliers||[]).map(x=>`<option value="${x.id}" ${Number(a?.supplier_id)===Number(x.id)?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`)}${priceHTML}${field('Warranty (months)', `<input id="na-warranty" class="ios-input" type="number" min="0" placeholder="0" value="${a?.warranty_months ?? 0}">`)}${qtyHTML}</div>`, () => {
+  openModal(a?`Edit — ${a.code}`:'Add Stock Item', `<div class="form-grid"><div class="field-hint">🔖 Code: <b style="color:var(--purple)">${esc(pc)}</b></div>${field('Item name', `<input id="na-name" class="ios-input" list="acc-existing-names" oninput="showExistingAccessoryMatches()" placeholder="iPhone 15 Tempered Glass" value="${esc(a?.name||'')}" autofocus><datalist id="acc-existing-names">${existingOptions}</datalist>`, true)}<div id="na-existing-items" class="card pad" style="margin-top:-4px"><span class="muted small">Start typing to find existing stock items.</span></div>${field('Barcode', `<input id="na-barcode" class="ios-input" placeholder="Auto-generated if empty" value="${esc(a?.barcode||'')}">`, false, '🏷️ Leave empty = auto barcode')}${field('Category', `<input id="na-cat" class="ios-input" list="acc-cat-suggest" oninput="showExistingAccessoryMatches()" placeholder="Type or pick" value="${esc(a?.category||'')}"><datalist id="acc-cat-suggest">${cats.map(c=>`<option value="${esc(c)}"></option>`).join('')}</datalist>`)}${field('Supplier', `<select id="na-supplier" class="ios-input"><option value="">— Select supplier —</option>${(DB.suppliers||[]).map(x=>`<option value="${x.id}" ${Number(a?.supplier_id)===Number(x.id)?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`)}${priceHTML}${field('Warranty (months)', `<input id="na-warranty" class="ios-input" type="number" min="0" placeholder="0" value="${a?.warranty_months ?? 0}">`)}${qtyHTML}</div>`, () => {
     const name = document.getElementById('na-name').value.trim();
     if (!name){ toast('Name required','error'); return false; }
+    const category = document.getElementById('na-cat').value.trim();
     if (!a) {
       const key = normalizeAccessoryName(name);
-      const dup = DB.accessories.find(x => normalizeAccessoryName(x.name) === key);
+      const catKey = normalizeAccessoryCategory(category);
+      const dup = DB.accessories.find(x => normalizeAccessoryName(x.name) === key && normalizeAccessoryCategory(x.category) === catKey);
       if (dup) {
-        toast(`Already added: ${dup.name} (${dup.code}), Qty: ${Number(dup.qty||0)}`, 'error', 5000);
-        const addMore = confirm(`“${dup.name}” already exists (Qty: ${Number(dup.qty||0)}).\n\nDo you want to add quantity to this existing item instead?`);
+        toast(`Already added in category "${dup.category || 'Uncategorised'}": ${dup.name} (${dup.code}), Qty: ${Number(dup.qty||0)}`, 'error', 5000);
+        const addMore = confirm(`“${dup.name}” already exists in category “${dup.category || 'Uncategorised'}” (Qty: ${Number(dup.qty||0)}).\n\nDo you want to add quantity to this existing item instead?`);
         if (addMore) { useExistingAccessory(dup.id); }
         return false;
       }
@@ -1929,6 +1933,84 @@ function showFirebaseAuth() {
 }
 
 function showLogin() { document.getElementById('loading-screen').classList.add('hidden'); document.getElementById('firebase-auth-screen')?.classList.add('hidden'); document.getElementById('login-screen').classList.remove('hidden'); document.getElementById('app-layout').classList.add('hidden'); document.getElementById('login-user-list-wrap').classList.remove('hidden'); document.getElementById('login-pass-wrap').classList.add('hidden'); document.getElementById('login-pass').value = ''; document.getElementById('login-error').classList.add('hidden'); renderLoginUsers(); }
+
+async function resetAdminPassword() {
+  // Recovery is allowed only after the Firebase main account has authenticated.
+  if (!fbAuth || !fbAuth.currentUser) {
+    alert('Please sign in with your Firebase Main Account first.');
+    return;
+  }
+  if (!navigator.onLine || !fbConnected) {
+    alert('Internet/Firebase connection is required. No data has been changed.');
+    return;
+  }
+  if (dirty || isDirtyLS()) {
+    alert('This device has unsynced POS changes. Please sync/backup those changes first, then reload and retry. No data has been changed.');
+    return;
+  }
+
+  const first = prompt('Enter a NEW password for the POS admin account (minimum 8 characters):');
+  if (first === null) return;
+  if (first.length < 8) {
+    alert('Password must be at least 8 characters.');
+    return;
+  }
+  const second = prompt('Confirm the new admin password:');
+  if (second === null) return;
+  if (first !== second) {
+    alert('Passwords do not match. No data has been changed.');
+    return;
+  }
+  if (!confirm('Reset only the POS Admin password? Sales, stock, customers and all other POS data will remain unchanged.')) return;
+
+  try {
+    const snap = await fbRef.once('value');
+    const remote = fromFirebase(snap.val());
+    if (!isValidDB(remote)) throw new Error('Could not verify the POS database on Firebase.');
+    const admins = (remote.users || []).filter(u =>
+      u && String(u.username || '').toLowerCase() === 'admin' &&
+      String(u.role || '').toLowerCase() === 'admin' && u.active !== false
+    );
+    if (admins.length !== 1) {
+      throw new Error('Could not identify exactly one active admin account. Please contact support; nothing was changed.');
+    }
+    const admin = admins[0];
+    const userRef = fbRef.child('users').child(String(admin.id));
+    const newHash = hashPassword(first);
+
+    // Transaction updates only the selected admin user object and preserves every other field.
+    const result = await userRef.transaction(current => {
+      if (!current ||
+          String(current.username || '').toLowerCase() !== 'admin' ||
+          String(current.role || '').toLowerCase() !== 'admin' ||
+          current.active === false) return;
+      return Object.assign({}, current, { password: newHash });
+    });
+
+    if (!result.committed) {
+      throw new Error('Admin record changed or could not be updated. No other POS data was touched.');
+    }
+
+    const updateLocal = arr => {
+      const u = (arr || []).find(x => String(x.id) === String(admin.id));
+      if (u) u.password = newHash;
+    };
+    updateLocal(DB.users);
+    if (lastSyncedDB) updateLocal(lastSyncedDB.users);
+    try {
+      const remembered = JSON.parse(localStorage.getItem('pos_remember') || 'null');
+      if (remembered && String(remembered.uid) === String(admin.id)) localStorage.removeItem('pos_remember');
+    } catch(e) {}
+    cacheLocal();
+    saveSafetyBackup();
+    alert('Admin password reset successfully. You can now sign in with the new password.');
+    renderLoginUsers();
+  } catch (e) {
+    console.error('Admin password reset failed:', e);
+    alert('Password reset failed: ' + (e.message || e) + '\\nNo other POS data was intentionally changed.');
+  }
+}
+
 function renderLoginUsers() { const w = document.getElementById('login-user-list'); if (!w || !DB) return; const u = DB.users.filter(x => x.active); if (!u.length) { w.innerHTML = '<p class="muted center small">No active users</p>'; return; } w.innerHTML = u.map(x => { const av = x.photo ? `<img src="${x.photo}" alt="">` : esc((x.name||x.username).charAt(0).toUpperCase()); return `<div class="login-user-card" onclick="selectLoginUser(${x.id})"><div class="login-user-avatar">${av}</div><div style="flex:1;min-width:0"><div class="strong" style="font-size:13px">${esc(x.name)}</div><div class="muted small">@${esc(x.username)} · ${esc(x.role)}</div></div><span style="color:var(--blue);font-size:16px">›</span></div>`; }).join(''); }
 function selectLoginUser(id) { const u = DB.users.find(x=>x.id===id); if (!u) return; document.getElementById('login-user').value = u.username; document.getElementById('login-user-list-wrap').classList.add('hidden'); document.getElementById('login-pass-wrap').classList.remove('hidden'); document.getElementById('login-selected-user').textContent = `Sign in as ${u.name}`; setTimeout(()=>document.getElementById('login-pass').focus(), 100); }
 function backToUserList() { document.getElementById('login-user-list-wrap').classList.remove('hidden'); document.getElementById('login-pass-wrap').classList.add('hidden'); document.getElementById('login-pass').value = ''; document.getElementById('login-error').classList.add('hidden'); renderLoginUsers(); }
@@ -3048,7 +3130,7 @@ function finalizeSale({ disc, paidFinal, total, change, balance, method, custInf
   DB.sales.push(sale);
   const repDelivered = [], repPending = [];
   cart.forEach(it => {
-    DB.sale_items.push({ repair_id: it.type==='repair' ? it.repair_id : null, id:nextId('sale_items'), sale_id:sale.id, item_type: it.type || 'phone', item_code: it.code || '', barcode: it.barcode || '', warranty_months: it.warranty_months || 0, stock_unit_id: it.type==='phone' ? it.unit_id : null, accessory_id: it.type==='accessory' ? it.accessory_id : null, batch_id: it.type==='accessory' ? (it.batch_id ?? null) : null, product_id: it.type==='phone' ? it.product_id : null, description:it.free?('FREE: '+it.desc):it.desc, free:!!it.free, price:it.price, list_price:(it.list_price ?? it.price), item_disc:((it.list_price ?? it.price) - it.price), qty:it.qty, cost:it.cost });
+    DB.sale_items.push({ repair_id: it.type==='repair' ? it.repair_id : null, id:nextId('sale_items'), sale_id:sale.id, item_type: it.type || 'phone', category: it.type==='accessory' ? (DB.accessories.find(x=>Number(x.id)===Number(it.accessory_id))?.category || '') : (it.type==='phone' ? 'Mobile Phone' : (it.type==='reload' ? 'Reload' : (it.type==='repair' ? 'Repair' : ''))), item_code: it.code || '', barcode: it.barcode || '', warranty_months: it.warranty_months || 0, stock_unit_id: it.type==='phone' ? it.unit_id : null, accessory_id: it.type==='accessory' ? it.accessory_id : null, batch_id: it.type==='accessory' ? (it.batch_id ?? null) : null, product_id: it.type==='phone' ? it.product_id : null, description:it.free?('FREE: '+it.desc):it.desc, free:!!it.free, price:it.price, list_price:(it.list_price ?? it.price), item_disc:((it.list_price ?? it.price) - it.price), qty:it.qty, cost:it.cost });
     if (it.type === 'phone') { const u = DB.stock_units.find(x=>x.id===it.unit_id); if (u){ u.status = 'sold'; u.sold_at = now(); } }
     else if (it.type === 'accessory') { const a = DB.accessories.find(x=>x.id===it.accessory_id); if (a){ accRemoveStock(a, it.qty, it.batch_id); } }
     if (it.type === 'repair') {
@@ -3254,7 +3336,7 @@ function renderAccessoryBody() {
   if (q) rows = rows.filter(a => (a.code||'').toLowerCase().includes(q) || (a.name||'').toLowerCase().includes(q) || (a.category||'').toLowerCase().includes(q) || (a.barcode||'').toLowerCase().includes(q));
   rows.sort((a,b)=>b.id-a.id);
   if (!rows.length){ body.innerHTML = '<div class="card center pad muted">No items</div>'; return; }
-  body.innerHTML = `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Barcode</th>${cv?'<th>Cost</th>':''}<th>Sale</th><th>Qty</th><th></th></tr></thead><tbody>${rows.map(a => { const low = (a.qty||0) <= (a.low_stock_threshold||2); return `<tr><td>${codeChip(a.code, true)}</td><td class="strong">${esc(a.name)}</td><td>${esc(a.category||'-')}</td><td>${a.barcode?`<span class="code-chip barcode">🏷️ ${esc(a.barcode)}</span>`:'<span class="muted small">—</span>'}</td>${cv?`<td class="muted">${accPriceLines(a,'cost')}</td>`:''}<td class="primary-c strong">${accPriceLines(a,'price')}</td><td class="${low?'warn':'success'} strong">${a.qty||0}${repairHoldChip(a)}</td><td style="display:flex;gap:4px;flex-wrap:wrap"><button class="ios-pill sm" onclick="showItemSales('acc',${a.id})">📜 Sales</button>${accLive(a).length>1?`<button class="ios-pill sm" onclick="showAccBatches(${a.id})">💲 Prices</button>`:''}<button class="ios-pill sm" onclick="openBarcodePrint('acc',${a.id})">🏷️ Print</button>${cm?`<button class="ios-pill sm" onclick="showAddAccessory(${a.id})">Edit</button><button class="ios-pill sm" onclick="adjustAccessoryQty(${a.id})">Qty</button><button class="ios-pill red sm" onclick="deleteAccessory(${a.id})">Del</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>`;
+  body.innerHTML = `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Barcode</th>${cv?'<th>Cost</th>':''}<th>Sale</th><th>Qty</th><th></th></tr></thead><tbody>${rows.map(a => { const low = (a.qty||0) <= (a.low_stock_threshold||2); return `<tr><td>${codeChip(a.code, true)}</td><td class="strong">${esc(a.name)}</td><td>${esc(a.category||'-')}</td><td>${a.barcode?`<span class="code-chip barcode">🏷️ ${esc(a.barcode)}</span>`:'<span class="muted small">—</span>'}</td>${cv?`<td class="muted">${accPriceLines(a,'cost')}</td>`:''}<td class="primary-c strong">${accPriceLines(a,'price')}</td><td class="${low?'warn':'success'} strong">${a.qty||0}${repairHoldChip(a)}</td><td style="display:flex;gap:4px;flex-wrap:wrap"><button class="ios-pill sm" onclick="showItemSales('acc',${a.id})">📜 Sales</button>${accLive(a).length>1?`<button class="ios-pill sm" onclick="showAccBatches(${a.id})">💲 Prices</button>`:''}<button class="ios-pill sm" onclick="openBarcodePrint('acc',${a.id})">🏷️ Print</button>${cm?`<button class="ios-pill sm" onclick="showAddAccessory(${a.id})">Edit</button><button class="ios-pill sm" onclick="adjustAccessoryQty(${a.id})">Qty</button><button class="ios-pill red sm" onclick="deleteAccessory(${a.id})">🗑️ Remove</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>`;
 }
 function normalizeAccessoryName(v) { return String(v ?? '').normalize('NFKC').trim().toLocaleLowerCase().replace(/[\s\u00a0]+/g, ' ').replace(/[’‘]/g, "'").replace(/[–—]/g, '-'); }
 function showExistingAccessoryMatches() {
@@ -3267,7 +3349,26 @@ function showExistingAccessoryMatches() {
   if (!matches.length) { box.innerHTML = '<span class="success small">✓ No matching item found — this looks like a new item.</span>'; return; }
   box.innerHTML = '<div class="warn small strong" style="margin-bottom:6px">⚠ Existing item(s) found. Select an existing item instead of creating a duplicate:</div>' + matches.map(x => `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--border)"><span><b>${esc(x.name)}</b> <span class="muted small">${esc(x.code||'')} · ${esc(x.category||'Other')} · Qty: ${Number(x.qty||0)}</span></span><button type="button" class="ios-pill sm" onclick="useExistingAccessory(${Number(x.id)})">Use existing</button></div>`).join('');
 }
-async function deleteAccessory(id) { if (!(currentUser.role==='admin'||currentUser.role==='manager')){ toast('Access denied','error'); return; } const a = DB.accessories.find(x=>x.id===id); if (!a) return; const ok = await requireDangerConfirm(`DELETE ${a.code}`, `"${a.name}" qty: ${a.qty||0}`, { warnings: 1, password: false }); if (!ok) return; DB.accessories = DB.accessories.filter(x=>x.id!==id); save(); toast('Deleted','success'); renderAccessoryBody(); }
+async function deleteAccessory(id) {
+  if (!(currentUser.role==='admin'||currentUser.role==='manager')) { toast('Access denied','error'); return; }
+  const a = DB.accessories.find(x => Number(x.id) === Number(id));
+  if (!a) return;
+  const qty = Number(a.qty || 0);
+  const held = Number(repairHold(a.id) || 0);
+  const salesCount = (DB.sale_items || []).filter(x => Number(x.accessory_id) === Number(a.id)).length;
+  const repairCount = (DB.repair_parts || []).filter(x => Number(x.accessory_id) === Number(a.id) && !x.reversed).length;
+  const detail = `Item: ${a.name}\nCategory: ${a.category || 'Uncategorised'}\nAvailable quantity: ${qty}\nHeld for repairs: ${held}\nLinked sales history lines: ${salesCount}\nActive repair part lines: ${repairCount}\n\nThis removes the item from the Stock list. Existing sales/repair history records are kept, but this item can no longer be selected for new sales.`;
+  if (held > 0 || repairCount > 0) {
+    const okHeld = confirm(`⚠️ This item is currently linked to repair work.\n\n${detail}\n\nRemove it anyway?`);
+    if (!okHeld) return;
+  }
+  const ok = await requireDangerConfirm(`REMOVE ${a.code}`, detail, { warnings: 1, password: false });
+  if (!ok) return;
+  DB.accessories = DB.accessories.filter(x => Number(x.id) !== Number(id));
+  save();
+  toast(`Removed ${a.name} from Stock. Previous history was kept.`, 'success', 5000);
+  renderAccessoryBody();
+}
 
 const STATUS_LIST = ['received','diagnosing','waiting_parts','repairing','done','delivered'];
 let repairsQuery = '', repairsFilter = 'all';
@@ -4372,7 +4473,7 @@ function printSaleReceipt(saleId) {
   const c = DB.customers.find(x=>x.id===s.customer_id); const u = DB.users.find(x=>x.id===s.user_id);
   const cfg = DB.settings; const saleReturns = DB.returns.filter(r => r.sale_id === saleId);
   applyPrintSize();
-  document.getElementById('receipt').innerHTML = `<div class="center">${cfg.shop_logo ? `<img src="${cfg.shop_logo}" class="receipt-logo" alt="">` : ''}<div style="font-size:14px;font-weight:bold">${esc(cfg.shop_name)}</div><div>${esc(cfg.shop_address)}</div><div>${esc(cfg.shop_phone)}</div></div><hr><div class="row-line"><span>Invoice:</span><span>${esc(s.invoice_no)}</span></div><div class="row-line"><span>Date:</span><span>${esc(s.created_at)}</span></div>${c ? `<div class="row-line"><span>Customer:</span><span>${esc(c.name)}</span></div>` : ''}${c && c.phone ? `<div class="row-line"><span>Phone:</span><span>${esc(c.phone)}</span></div>` : ''}${u ? `<div class="row-line"><span>Served by:</span><span>${esc(u.name)}</span></div>` : ''}<hr>${items.map(it => { const isR = it.item_type === 'reload'; const isM = it.item_type === 'manual'; const w = warrantyText(it.warranty_months); const ic = isR ? '💳 ' : (isM ? '📦 ' : ''); const ct = it.item_code || (isR ? 'Reload' : ''); const cp = ct ? `[${esc(ct)}]` : ''; return `<div>${ic}${cp}${it.barcode?' 🏷️'+esc(it.barcode):''} ${esc(it.description)}</div>${w ? `<div style="padding-left:8px">  Warranty: ${w}</div>` : ''}<div class="row-line"><span>  ${it.qty} x ${fmt(it.price)}${it.item_disc>0?' (-'+fmt(it.item_disc)+')':''}</span><span>${fmt(it.qty*it.price)}</span></div>`; }).join('')}<hr><div class="row-line"><span>Subtotal:</span><span>${fmt(s.subtotal)}</span></div>${s.discount ? `<div class="row-line"><span>Discount:</span><span>-${fmt(s.discount)}</span></div>` : ''}<div class="row-line" style="font-weight:bold"><span>TOTAL:</span><span>${fmt(s.total)}</span></div><div class="row-line"><span>Paid (${esc(s.payment_method)}):</span><span>${fmt(saleGiven(s))}</span></div>${s.change > 0.01 ? `<div class="row-line"><span>Change:</span><span>${fmt(s.change)}</span></div>` : ''}${s.balance > 0 ? `<div class="row-line"><span>Balance:</span><span>${fmt(s.balance)}</span></div>` : ''}${c && c.balance > 0 ? `<div class="row-line" style="font-weight:bold"><span>Total Owed:</span><span>${fmt(c.balance)}</span></div>` : ''}${saleReturns.length ? `<hr><div class="center" style="font-weight:bold">RETURNS</div>${saleReturns.map(r => `<div>[${esc(r.item_code||'-')}] ${esc(r.description)} ${r.restocked?'✅':'❌'}</div><div class="row-line"><span>  ${r.qty} × ${fmt(r.unit_price)}</span><span>-${fmt(r.refund_amount)}</span></div>`).join('')}` : ''}<hr><div class="center">Thank you!</div><div style="height:15px"></div>`;
+  document.getElementById('receipt').innerHTML = `<div class="center">${cfg.shop_logo ? `<img src="${cfg.shop_logo}" class="receipt-logo" alt="">` : ''}<div style="font-size:14px;font-weight:bold">${esc(cfg.shop_name)}</div><div>${esc(cfg.shop_address)}</div><div>${esc(cfg.shop_phone)}</div></div><hr><div class="row-line"><span>Invoice:</span><span>${esc(s.invoice_no)}</span></div><div class="row-line"><span>Date:</span><span>${esc(s.created_at)}</span></div>${c ? `<div class="row-line"><span>Customer:</span><span>${esc(c.name)}</span></div>` : ''}${c && c.phone ? `<div class="row-line"><span>Phone:</span><span>${esc(c.phone)}</span></div>` : ''}${u ? `<div class="row-line"><span>Served by:</span><span>${esc(u.name)}</span></div>` : ''}<hr>${items.map(it => { const isR = it.item_type === 'reload'; const isM = it.item_type === 'manual'; const cat = it.category || (it.accessory_id ? (DB.accessories.find(a=>Number(a.id)===Number(it.accessory_id))?.category || '') : ''); const w = warrantyText(it.warranty_months); const ic = isR ? '💳 ' : (isM ? '📦 ' : ''); const ct = it.item_code || (isR ? 'Reload' : ''); const cp = ct ? `[${esc(ct)}]` : ''; return `<div>${ic}${cp}${it.barcode?' 🏷️'+esc(it.barcode):''} ${esc(it.description)}${cat ? ` · ${esc(cat)}` : ''}</div>${w ? `<div style="padding-left:8px">  Warranty: ${w}</div>` : ''}<div class="row-line"><span>  ${it.qty} x ${fmt(it.price)}${it.item_disc>0?' (-'+fmt(it.item_disc)+')':''}</span><span>${fmt(it.qty*it.price)}</span></div>`; }).join('')}<hr><div class="row-line"><span>Subtotal:</span><span>${fmt(s.subtotal)}</span></div>${s.discount ? `<div class="row-line"><span>Discount:</span><span>-${fmt(s.discount)}</span></div>` : ''}<div class="row-line" style="font-weight:bold"><span>TOTAL:</span><span>${fmt(s.total)}</span></div><div class="row-line"><span>Paid (${esc(s.payment_method)}):</span><span>${fmt(saleGiven(s))}</span></div>${s.change > 0.01 ? `<div class="row-line"><span>Change:</span><span>${fmt(s.change)}</span></div>` : ''}${s.balance > 0 ? `<div class="row-line"><span>Balance:</span><span>${fmt(s.balance)}</span></div>` : ''}${c && c.balance > 0 ? `<div class="row-line" style="font-weight:bold"><span>Total Owed:</span><span>${fmt(c.balance)}</span></div>` : ''}${saleReturns.length ? `<hr><div class="center" style="font-weight:bold">RETURNS</div>${saleReturns.map(r => `<div>[${esc(r.item_code||'-')}] ${esc(r.description)} ${r.restocked?'✅':'❌'}</div><div class="row-line"><span>  ${r.qty} × ${fmt(r.unit_price)}</span><span>-${fmt(r.refund_amount)}</span></div>`).join('')}` : ''}<hr><div class="center">Thank you!</div><div style="height:15px"></div>`;
   setTimeout(()=>window.print(),120);
 }
 function printRepairReceipt(repairId) {
@@ -4743,5 +4844,266 @@ function sendCombinedOrderItems(itemIds,supplierId) {
 }
 
 </script>
+
+<script>
+/* Look Mobile POS v4.6 — stock category, receipt and multi-window fixes */
+function normalizeAccessoryCategory(v) {
+  return String(v ?? '').normalize('NFKC').trim().toLocaleLowerCase()
+    .replace(/[\s\u00a0]+/g, ' ').replace(/[’‘]/g, "'").replace(/[–—]/g, '-');
+}
+function showExistingAccessoryMatches() {
+  const nameEl = document.getElementById('na-name');
+  const catEl = document.getElementById('na-cat');
+  const box = document.getElementById('na-existing-items');
+  if (!nameEl || !box) return;
+  const q = normalizeAccessoryName(nameEl.value);
+  const cat = normalizeAccessoryCategory(catEl?.value || '');
+  if (!q) {
+    box.innerHTML = '<span class="muted small">Enter item name and category to check for an existing item.</span>';
+    return;
+  }
+  const matches = (DB.accessories || []).filter(x =>
+    normalizeAccessoryName(x.name).includes(q) &&
+    normalizeAccessoryCategory(x.category) === cat
+  ).slice(0, 8);
+  const otherCats = (DB.accessories || []).filter(x =>
+    normalizeAccessoryName(x.name).includes(q) &&
+    normalizeAccessoryCategory(x.category) !== cat
+  );
+  if (!matches.length) {
+    box.innerHTML = `<span class="success small">✓ No duplicate in category “${esc(catEl?.value.trim() || 'Uncategorised')}”. You can add this item.</span>` +
+      (otherCats.length ? `<div class="muted small" style="margin-top:5px">Same name exists in another category (${[...new Set(otherCats.map(x=>x.category||'Uncategorised'))].map(esc).join(', ')}). This is allowed.</div>` : '');
+    return;
+  }
+  box.innerHTML = '<div class="warn small strong" style="margin-bottom:6px">⚠ This name already exists in the same category:</div>' +
+    matches.map(x => `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--separator)"><span><b>${esc(x.name)}</b> <span class="muted small">${esc(x.code||'')} · ${esc(x.category||'Uncategorised')} · Qty: ${Number(x.qty||0)}</span></span><button type="button" class="ios-pill sm" onclick="useExistingAccessory(${Number(x.id)})">Add to this</button></div>`).join('');
+}
+function openNewPOSWindow() {
+  const w = window.open(location.href, '_blank', 'popup=yes,width=1380,height=900,resizable=yes,scrollbars=yes');
+  if (!w) {
+    toast('Popup blocked. Allow popups for this POS website, then try again.', 'warn', 5000);
+    return;
+  }
+  try { w.focus(); } catch (_) {}
+  toast('New POS window opened. Both windows use the same Firebase data.', 'success', 3500);
+}
+(function addReadableListStyles(){
+  const css = `
+    select option, select optgroup { background:#242432 !important; color:#f7f7fb !important; }
+    [data-theme="light"] select option, [data-theme="light"] select optgroup { background:#fff !important; color:#17171d !important; }
+    .modal select, select.ios-input { color:var(--text) !important; background-color:var(--glass-strong); }
+    [data-theme="light"] .ios-table tbody td { color:#20202a; }
+    [data-theme="light"] .ios-table tbody td .muted { color:#666675 !important; }
+    .view-shell { animation:lmViewIn .28s cubic-bezier(.2,.75,.25,1) both; }
+    @keyframes lmViewIn { from {opacity:0;transform:translateY(7px) scale(.995)} to {opacity:1;transform:none} }
+    .ios-pill,.ios-btn,.stat,.card,.item-row,.nav a { transition:transform .16s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease; }
+    .ios-pill:active,.ios-btn:active { transform:scale(.97); }
+    .ios-table tbody tr { animation:lmRowIn .22s ease both; }
+    @keyframes lmRowIn { from {opacity:0;transform:translateY(3px)} to {opacity:1;transform:none} }
+    .stat::after { content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(110deg,transparent 25%,rgba(255,255,255,.055) 48%,transparent 70%);transform:translateX(-120%);transition:transform .7s ease; }
+    .stat:hover::after { transform:translateX(120%); }
+    .ios-pill:focus-visible,.ios-btn:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid var(--blue);outline-offset:2px; }
+  `;
+  const st=document.createElement('style'); st.id='lookmobile-v46-polish'; st.textContent=css; document.head.appendChild(st);
+})();
+</script>
+
+<script>
+/* Look Mobile POS v4.7 — safely remove only selected mistaken stock items + compact account panel */
+let mistakenStockMode = false;
+let mistakenStockSelected = new Set();
+function toggleAccountPanel() {
+  const foot = document.querySelector('.sidebar-foot');
+  if (!foot) return;
+  foot.classList.toggle('expanded');
+}
+function toggleMistakenStockMode() {
+  mistakenStockMode = !mistakenStockMode;
+  mistakenStockSelected = new Set();
+  renderStock(document.getElementById('content'));
+}
+function toggleMistakenStockSelection(id, checked) {
+  id = Number(id);
+  if (checked) mistakenStockSelected.add(id);
+  else mistakenStockSelected.delete(id);
+  const count = document.getElementById('mistaken-stock-count');
+  if (count) count.textContent = String(mistakenStockSelected.size);
+  const btn = document.getElementById('remove-mistaken-stock-btn');
+  if (btn) btn.disabled = mistakenStockSelected.size === 0;
+}
+async function removeSelectedMistakenStock() {
+  if (!(currentUser.role === 'admin' || currentUser.role === 'manager')) { toast('Access denied','error'); return; }
+  const ids = [...mistakenStockSelected].map(Number);
+  const items = ids.map(id => DB.accessories.find(a => Number(a.id) === id)).filter(Boolean);
+  if (!items.length) { toast('Select only the items added by mistake','warn'); return; }
+  const blocked = items.map(a => {
+    const sales = (DB.sale_items || []).filter(x => Number(x.accessory_id) === Number(a.id)).length;
+    const repairs = (DB.repair_parts || []).filter(x => Number(x.accessory_id) === Number(a.id) && !x.reversed).length;
+    return { a, sales, repairs };
+  }).filter(x => x.sales || x.repairs);
+  if (blocked.length) {
+    const detail = blocked.map(x => `${x.a.name} (${x.a.category || 'Uncategorised'}) — ${x.sales} sale line(s), ${x.repairs} active repair part(s)`).join('\n');
+    alert('Some selected items are already used in sales or active repairs, so they were NOT removed. Edit their category instead, or resolve their linked records first.\n\n' + detail);
+    return;
+  }
+  const detail = items.map(a => `• ${a.name} | ${a.category || 'Uncategorised'} | Qty: ${Number(a.qty || 0)} | ${a.code || ''}`).join('\n');
+  const ok = confirm(`Remove ONLY these ${items.length} selected mistaken stock item(s)?\n\n${detail}\n\nOther stock items will not be changed. Previous unrelated records will not be deleted.`);
+  if (!ok) return;
+  DB.accessories = DB.accessories.filter(a => !ids.includes(Number(a.id)));
+  mistakenStockSelected = new Set();
+  mistakenStockMode = false;
+  save();
+  toast(`${items.length} selected mistaken item(s) removed. Other stock items are unchanged.`, 'success', 4000);
+  renderStock(document.getElementById('content'));
+}
+function renderStock(root) {
+  if (!root) return;
+  const cm = currentUser.role === 'admin' || currentUser.role === 'manager';
+  const cats = getAllCategories();
+  const actions = `${cm ? (mistakenStockMode
+    ? `<button class="ios-pill ghost" onclick="toggleMistakenStockMode()">Cancel selection</button><button class="ios-pill red" id="remove-mistaken-stock-btn" onclick="removeSelectedMistakenStock()" ${mistakenStockSelected.size ? '' : 'disabled'}>🗑 Remove selected (<span id="mistaken-stock-count">${mistakenStockSelected.size}</span>)</button>`
+    : `<button class="ios-pill" onclick="toggleMistakenStockMode()">☑ Select mistaken items</button><button class="ios-pill" onclick="showStockCheck()">📋 Stock Check</button><button class="ios-pill blue" onclick="showAddAccessory()">+ Add Item</button>` ) : ''}`;
+  root.innerHTML = `<div class="view-shell"><div class="page-head"><h1>Stock</h1><div class="head-actions">${actions}</div></div>${mistakenStockMode ? '<div class="credit-notice" style="margin-bottom:10px">Select only the stock items that were added by mistake. Unselected items will remain untouched. Items already used in sales or active repairs cannot be removed here.</div>' : ''}<div class="search-row">${searchBar('acc-search','Search name, code, barcode...','accSearch(this.value)')}<select id="acc-cat" class="ios-input" style="max-width:220px" onchange="accSetCat(this.value)"><option value="">All Categories</option>${cats.map(c=>`<option value="${esc(c)}" ${accCatFilter===c?'selected':''}>${esc(c)}</option>`).join('')}</select></div><div class="view-scroll" id="acc-body"></div></div>`;
+  if (accQuery) document.getElementById('acc-search').value = accQuery;
+  renderAccessoryBody();
+}
+function renderAccessoryBody() {
+  const body = document.getElementById('acc-body'); if (!body) return;
+  const q = accQuery.trim().toLowerCase();
+  const cm = currentUser.role === 'admin' || currentUser.role === 'manager';
+  const cv = canSeeCost();
+  let rows = DB.accessories.slice();
+  if (accCatFilter) rows = rows.filter(a => a.category === accCatFilter);
+  if (q) rows = rows.filter(a => (a.code||'').toLowerCase().includes(q) || (a.name||'').toLowerCase().includes(q) || (a.category||'').toLowerCase().includes(q) || (a.barcode||'').toLowerCase().includes(q));
+  rows.sort((a,b)=>b.id-a.id);
+  if (!rows.length) { body.innerHTML = '<div class="card center pad muted">No items</div>'; return; }
+  body.innerHTML = `<div class="ios-table-wrap"><table class="ios-table"><thead><tr>${mistakenStockMode?'<th>Select</th>':''}<th>Code</th><th>Name</th><th>Category</th><th>Barcode</th>${cv?'<th>Cost</th>':''}<th>Sale</th><th>Qty</th><th></th></tr></thead><tbody>${rows.map(a => { const low = (a.qty||0) <= (a.low_stock_threshold||2); const checked = mistakenStockSelected.has(Number(a.id)); return `<tr class="${mistakenStockMode && checked ? 'mistaken-stock-selected' : ''}">${mistakenStockMode?`<td><input type="checkbox" aria-label="Select ${esc(a.name)} as mistakenly added" ${checked?'checked':''} onchange="toggleMistakenStockSelection(${Number(a.id)},this.checked)"></td>`:''}<td>${codeChip(a.code, true)}</td><td class="strong">${esc(a.name)}</td><td>${esc(a.category||'-')}</td><td>${a.barcode?`<span class="code-chip barcode">🏷️ ${esc(a.barcode)}</span>`:'<span class="muted small">—</span>'}</td>${cv?`<td class="muted">${accPriceLines(a,'cost')}</td>`:''}<td class="primary-c strong">${accPriceLines(a,'price')}</td><td class="${low?'warn':'success'} strong">${a.qty||0}${repairHoldChip(a)}</td><td style="display:flex;gap:4px;flex-wrap:wrap"><button class="ios-pill sm" onclick="showItemSales('acc',${a.id})">📜 Sales</button>${accLive(a).length>1?`<button class="ios-pill sm" onclick="showAccBatches(${a.id})">💲 Prices</button>`:''}<button class="ios-pill sm" onclick="openBarcodePrint('acc',${a.id})">🏷️ Print</button>${cm?`<button class="ios-pill sm" onclick="showAddAccessory(${a.id})">Edit</button><button class="ios-pill sm" onclick="adjustAccessoryQty(${a.id})">Qty</button>`:''}</td></tr>`; }).join('')}</tbody></table></div>`;
+}
+(function addV47Styles(){
+  const css = `
+    .sidebar-foot .user-card{cursor:pointer;position:relative;user-select:none}
+    .sidebar-foot .user-card::after{content:'⌄';margin-left:auto;font-size:14px;color:var(--text-2);transition:transform .18s ease}
+    .sidebar-foot.expanded .user-card::after{content:'⌃'}
+    .sidebar-foot:not(.expanded) .storage-status,.sidebar-foot:not(.expanded) .switch-btn,.sidebar-foot:not(.expanded) .ios-btn{display:none!important}
+    .sidebar-foot:not(.expanded) .user-card{margin-bottom:0}
+    .sidebar-foot.expanded .user-card{margin-bottom:7px}
+    .nav{min-height:0;gap:1px;padding:1px}
+    .nav a{padding-top:8px;padding-bottom:8px;min-height:34px}
+    .mistaken-stock-selected{background:rgba(255,122,0,.10)!important}
+    #remove-mistaken-stock-btn:disabled{opacity:.42;cursor:not-allowed}
+    .ios-table input[type=checkbox]{width:17px;height:17px;accent-color:var(--blue);cursor:pointer}
+    @media(min-width:769px){.sidebar:not(:hover) .sidebar-foot .user-card::after{opacity:0}}
+  `;
+  const st=document.createElement('style'); st.id='lookmobile-v47-styles'; st.textContent=css; document.head.appendChild(st);
+})();
+</script>
+
+
+<script>
+/* Look Mobile POS v4.9 — unread counts + admin broadcast notifications */
+(function installLookMobileNotifications(){
+  if (window.__lookMobileNotificationsInstalled) return;
+  window.__lookMobileNotificationsInstalled = true;
+  const baseTitle = 'Look Mobile';
+  const READ_KEY = 'lookmobile_notif_read_v1:';
+  let notifBaselineReady = false;
+  let previousIds = new Set();
+
+  function money(v){ try { return typeof fmtInt==='function' ? fmtInt(v) : String(Math.round(Number(v)||0)); } catch(e){ return String(Math.round(Number(v)||0)); } }
+  function readKey(){ return READ_KEY + String(currentUser?.id || 'guest'); }
+  function getReadIds(){ try { const a=JSON.parse(localStorage.getItem(readKey())||'[]'); return new Set(Array.isArray(a)?a.map(String):[]); } catch(e){ return new Set(); } }
+  function saveReadIds(ids){ try { localStorage.setItem(readKey(),JSON.stringify([...ids])); } catch(e){} }
+  function getAlerts(){
+    if (!DB || !currentUser) return [];
+    const out=[];
+    const add=(id,level,title,detail,view)=>out.push({id:String(id),level,title,detail,view});
+    (DB.accessories||[]).forEach(a=>{
+      const qty=Number(a.qty)||0, threshold=Number(a.low_stock_threshold ?? DB.settings?.low_stock ?? 2);
+      if(qty<=threshold) add('acc:'+a.id,qty<=0?'critical':'warning',qty<=0?'Out of stock':'Low accessory stock',`${a.name||'Item'} · ${a.category||'Uncategorised'} · Qty ${qty} (limit ${threshold})`,'stock');
+    });
+    (DB.products||[]).forEach(p=>{
+      const qty=(DB.stock_units||[]).filter(u=>Number(u.product_id)===Number(p.id)&&u.status==='in_stock').length;
+      const threshold=Number(p.low_stock_threshold ?? DB.settings?.low_stock ?? 2);
+      if(qty<=threshold) add('phone:'+p.id,qty<=0?'critical':'warning',qty<=0?'Phone out of stock':'Low phone stock',`${[p.brand,p.model,p.storage].filter(Boolean).join(' ')} · ${qty} left (limit ${threshold})`,'phonestock');
+    });
+    (DB.customers||[]).forEach(c=>{const due=Number(c.balance)||0;if(due>0.005)add('customer:'+c.id,'info','Customer credit outstanding',`${c.name||'Customer'} · Rs. ${money(due)}`,'customers');});
+    (DB.shops||[]).forEach(sh=>{let due=0;try{due=typeof calcShopOutstanding==='function'?calcShopOutstanding(sh):0;}catch(e){}if(due>0.5)add('shop:'+sh.id,'info','Shop outstanding',`${sh.name||'Shop'} · Rs. ${money(due)}`,'shoprepair');});
+    (DB.suppliers||[]).forEach(s=>{let due=0;try{due=typeof supplierOutstanding==='function'?supplierOutstanding(s.id):0;}catch(e){}if(due>0.005)add('supplier:'+s.id,'info','Supplier outstanding',`${s.name||'Supplier'} · Rs. ${money(due)} payable`,'supplieroutstanding');});
+    (DB.supplier_bills||[]).forEach(b=>{let due=0;try{due=typeof supBillOutstanding==='function'?supBillOutstanding(b):Math.max(0,Number(b.amount)||0);}catch(e){}if(due>0.005&&b.due_date&&typeof today==='function'&&b.due_date<today()){const sup=(DB.suppliers||[]).find(x=>Number(x.id)===Number(b.supplier_id));add('overdue-bill:'+b.id,'critical','Supplier bill overdue',`${sup?.name||'Supplier'} · ${b.bill_no||'Bill'} · Rs. ${money(due)} · Due ${b.due_date}`,'supplieroutstanding');}});
+    (typeof pendingSupplierChecks==='function'?pendingSupplierChecks():[]).forEach(c=>{const sup=(DB.suppliers||[]).find(x=>Number(x.id)===Number(c.supplier_id));const isLate=!!(c.due_date&&typeof today==='function'&&c.due_date<today());add('cheque:'+c.id,isLate?'critical':'warning',isLate?'Cheque overdue':'Pending cheque',`${sup?.name||'Supplier'} · ${c.cheque_no||'Cheque'} · Rs. ${money(c.amount)} · Due ${c.due_date||'date not set'}`,'supplieroutstanding');});
+    (DB.repairs||[]).filter(r=>r.status==='done').forEach(r=>{const c=(DB.customers||[]).find(x=>Number(x.id)===Number(r.customer_id));add('repair-ready:'+r.id,'success','Repair ready for collection',`${r.job_no||'Repair'} · ${[r.device_brand,r.device_model].filter(Boolean).join(' ')} · ${c?.name||'Customer'}`,'repairs');});
+    const nowMs=Date.now();
+    (DB.developer_notifications||[]).filter(n=>!n.expires_at || new Date(n.expires_at).getTime()>nowMs).forEach(n=>add('developer:'+n.id,n.level||'announcement',n.title||'Message from Look Mobile',n.message||'', 'dashboard'));
+    return out;
+  }
+  function ensureBell(){
+    let b=document.getElementById('pos-notification-bell');
+    if(!b){b=document.createElement('button');b.id='pos-notification-bell';b.type='button';b.className='pos-notification-bell';b.setAttribute('aria-label','Open notifications');b.title='Notifications';b.innerHTML='<span class="pos-notification-bell-icon">🔔</span><span id="pos-notification-count" class="pos-notification-count">0</span>';b.addEventListener('click',openNotificationCenter);document.body.appendChild(b);}
+    return b;
+  }
+  function updateBrowserTab(count){
+    document.title=count?`(${count>99?'99+':count}) ${baseTitle}`:baseTitle;
+    let link=document.querySelector('link[rel~="icon"]');if(!link){link=document.createElement('link');link.rel='icon';document.head.appendChild(link);}
+    const n=count>99?'99+':String(count);
+    const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect x="5" y="5" width="54" height="54" rx="15" fill="#2563eb"/><text x="32" y="43" text-anchor="middle" font-size="34">📱</text>${count?`<circle cx="49" cy="14" r="14" fill="#ef4444"/><text x="49" y="19" text-anchor="middle" font-family="Arial,sans-serif" font-size="${n.length>2?9:12}" font-weight="700" fill="white">${n}</text>`:''}</svg>`;
+    link.href='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+  }
+  function updateNotificationUI(){
+    const bell=ensureBell();
+    if(!DB||!currentUser){bell.style.display='none';updateBrowserTab(0);return;}
+    const alerts=getAlerts(), ids=new Set(alerts.map(a=>a.id));
+    let read=getReadIds();
+    // Remove stale read markers so an alert that disappears and later returns is new again.
+    read=new Set([...read].filter(id=>ids.has(id)));saveReadIds(read);
+    const unread=alerts.filter(a=>!read.has(a.id)),count=unread.length;
+    bell.style.display='flex';
+    const badge=document.getElementById('pos-notification-count');if(badge){badge.textContent=count>99?'99+':String(count);badge.style.display=count?'flex':'none';}
+    bell.classList.toggle('has-alerts',count>0);updateBrowserTab(count);
+    if(!notifBaselineReady){previousIds=ids;notifBaselineReady=true;}
+    else if('Notification' in window && Notification.permission==='granted'){
+      const added=unread.filter(a=>!previousIds.has(a.id));
+      if(added.length){try{new Notification('Look Mobile POS',{body:added.length===1?`${added[0].title}: ${added[0].detail}`:`${added.length} new alerts. Open Look Mobile POS to review.`,tag:'lookmobile-alerts'});}catch(e){}}
+      previousIds=ids;
+    } else previousIds=ids;
+  }
+  window.markLookMobileNotificationRead=function(id){const read=getReadIds();read.add(String(id));saveReadIds(read);updateNotificationUI();};
+  window.markAllLookMobileNotificationsRead=function(){const read=getReadIds();getAlerts().forEach(a=>read.add(a.id));saveReadIds(read);updateNotificationUI();openNotificationCenter();};
+  function openNotificationCenter(){
+    const alerts=getAlerts(),read=getReadIds();
+    if(typeof openModal!=='function')return;
+    const groups=[['critical','🔴 Urgent'],['warning','🟠 Stock & cheque alerts'],['info','🔵 Outstanding balances'],['success','🟢 Ready for collection'],['announcement','📢 Messages from Look Mobile']];
+    const rows=groups.map(([level,label])=>{const items=alerts.filter(a=>a.level===level);if(!items.length)return '';return `<div class="pos-notif-group"><h3>${label} <span>${items.length}</span></h3>${items.map(a=>`<div class="pos-notif-row ${read.has(a.id)?'is-read':'is-unread'}"><div class="pos-notif-copy"><b>${esc(a.title)}</b><div>${esc(a.detail)}</div><small class="pos-notif-read-state">${read.has(a.id)?'Read':'● Unread'}</small></div><button type="button" class="ios-pill sm blue" onclick="markLookMobileNotificationRead('${esc(a.id)}');closeModal();navigateTo('${a.view}')">View</button></div>`).join('')}</div>`;}).join('');
+    const permission=(!('Notification' in window))?'<div class="muted small">This browser does not support desktop notifications.</div>':Notification.permission==='granted'?'<div class="success small">✓ Desktop notifications are enabled.</div>':Notification.permission==='denied'?'<div class="muted small">Desktop notifications are blocked in browser settings. You can still see the unread count on the browser tab.</div>':'<button type="button" class="ios-pill blue" onclick="enableLookMobileDesktopNotifications()">🔔 Enable desktop notifications</button>';
+    const adminTools=currentUser?.role==='admin'?'<div class="pos-notif-admin-tools"><button type="button" class="ios-pill blue" onclick="showSendLookMobileNotification()">📢 Send notification to POS users</button></div>':'';
+    const unreadCount=alerts.filter(a=>!read.has(a.id)).length;
+    const html=`<div class="pos-notif-summary"><b>${unreadCount} unread · ${alerts.length} active notification${alerts.length===1?'':'s'}</b><span class="muted small">Click View to mark an alert as read. Read alerts stay visible until they are resolved or expire.</span></div>${unreadCount?'<button type="button" class="ios-pill sm" onclick="markAllLookMobileNotificationsRead()">✓ Mark all as read</button>':''}${rows||'<div class="card center pad muted">🎉 No active alerts. Everything looks clear.</div>'}${adminTools}<div class="pos-notif-permission">${permission}</div>`;
+    openModal('🔔 Notifications',html,()=>{},'Close');
+  }
+  window.showSendLookMobileNotification=function(){
+    if(!currentUser||currentUser.role!=='admin'){toast('Admin access required','error');return;}
+    if(typeof openModal!=='function')return;
+    const expiry=new Date(Date.now()+7*86400000).toISOString().slice(0,16);
+    const html=`<div class="form-grid">${field('Notification title','<input id="lm-push-title" class="ios-input" maxlength="70" placeholder="New update available">',true)}${field('Message','<textarea id="lm-push-message" class="ios-input" rows="4" maxlength="500" placeholder="Type the message to send to all POS users"></textarea>',true)}${field('Priority','<select id="lm-push-level" class="ios-input"><option value="announcement">Normal</option><option value="warning">Important</option><option value="critical">Urgent</option></select>')}${field('Expire date & time',`<input id="lm-push-expiry" class="ios-input" type="datetime-local" value="${expiry}">`)}</div><p class="muted small">This message will sync through Firebase and appear in every signed-in POS account.</p>`;
+    openModal('📢 Send POS Notification',html,()=>{const title=document.getElementById('lm-push-title').value.trim(),message=document.getElementById('lm-push-message').value.trim(),level=document.getElementById('lm-push-level').value,expires=document.getElementById('lm-push-expiry').value;if(!title||!message){toast('Enter a title and message','error');return false;}const id=nextId('developer_notifications');DB.developer_notifications.push({id,title,message,level,expires_at:expires?new Date(expires).toISOString():null,created_at:typeof now==='function'?now():new Date().toISOString(),created_by:currentUser.id,created_by_name:currentUser.name||currentUser.username});save();updateNotificationUI();toast('Notification sent to POS users','success');},'Send to All Users');
+  };
+  window.enableLookMobileDesktopNotifications=async function(){if(!('Notification'in window)){toast('Desktop notifications are not supported by this browser','warn');return;}try{const result=await Notification.requestPermission();updateNotificationUI();if(result==='granted'){toast('Desktop notifications enabled','success');openNotificationCenter();}else toast('Notification permission was not granted','warn');}catch(e){toast('Could not enable desktop notifications','error');}};
+  const oldRender=window.render;if(typeof oldRender==='function')window.render=function(){const r=oldRender.apply(this,arguments);updateNotificationUI();return r;};
+  const oldSave=window.save;if(typeof oldSave==='function')window.save=function(){const r=oldSave.apply(this,arguments);updateNotificationUI();return r;};
+  window.openNotificationCenter=openNotificationCenter;window.updateLookMobileNotifications=updateNotificationUI;
+  const style=document.createElement('style');style.id='lookmobile-notifications-css';style.textContent=`
+    .pos-notification-bell{position:fixed;right:18px;top:72px;z-index:1200;width:44px;height:44px;border:1px solid var(--border);border-radius:14px;background:var(--card);color:var(--text);box-shadow:0 5px 20px rgba(0,0,0,.16);display:none;align-items:center;justify-content:center;cursor:pointer;transition:transform .18s,box-shadow .18s}
+    .pos-notification-bell:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.2)}.pos-notification-bell-icon{font-size:20px;line-height:1}
+    .pos-notification-count{position:absolute;right:-6px;top:-7px;min-width:19px;height:19px;padding:0 4px;border-radius:12px;background:#ef4444;color:white;font:700 10px/19px Arial,sans-serif;display:none;align-items:center;justify-content:center;border:2px solid var(--card)}
+    .pos-notification-bell.has-alerts .pos-notification-bell-icon{animation:posBellPulse 2.2s infinite}
+    @keyframes posBellPulse{0%,85%,100%{transform:rotate(0)}89%{transform:rotate(13deg)}93%{transform:rotate(-13deg)}97%{transform:rotate(7deg)}}
+    .pos-notif-summary{display:flex;flex-direction:column;gap:3px;padding:10px 12px;background:var(--glass-hover);border:1px solid var(--border);border-radius:12px;margin-bottom:10px}
+    .pos-notif-group{margin:12px 0}.pos-notif-group h3{font-size:13px;margin:0 0 6px;display:flex;justify-content:space-between;align-items:center}.pos-notif-group h3 span{font-size:11px;color:var(--text-2);font-weight:600}
+    .pos-notif-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 2px;border-bottom:1px solid var(--border)}.pos-notif-copy{min-width:0;flex:1}.pos-notif-copy b{font-size:12px}.pos-notif-copy div{font-size:11px;color:var(--text-2);margin-top:3px;overflow-wrap:anywhere}.pos-notif-read-state{font-size:10px;color:var(--text-2);display:block;margin-top:4px}.pos-notif-row.is-unread .pos-notif-copy b{font-weight:800}.pos-notif-row.is-read{opacity:.72}.pos-notif-admin-tools{border-top:1px solid var(--border);padding-top:12px;margin-top:12px}.pos-notif-permission{border-top:1px solid var(--border);padding-top:12px;margin-top:14px}
+    @media(max-width:700px){.pos-notification-bell{top:12px;right:12px;width:40px;height:40px;border-radius:13px}}
+  `;document.head.appendChild(style);
+  window.addEventListener('focus',updateNotificationUI);document.addEventListener('visibilitychange',()=>{if(!document.hidden)updateNotificationUI();});setInterval(updateNotificationUI,30000);updateNotificationUI();
+})();
+</script>
+
 </body>
 </html>
