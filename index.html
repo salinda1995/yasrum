@@ -176,6 +176,7 @@ function sendCombinedOrderItems(itemIds,supplierId) {
 }
 
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <style>
 :root{
   --blue:#0A84FF;--blue-hover:#0070E0;--green:#30D158;--orange:#FF9F0A;--red:#FF453A;--purple:#BF5AF2;--teal:#64D2FF;--wa:#25D366;
@@ -844,6 +845,27 @@ body::before{
   .card{padding:14px;border-radius:18px}
   .mobile-tabs{background:var(--glass-strong)}
 }
+
+/* ===== v5.2 Exchange / PDF / invoice filters ===== */
+.ex-return-row{border-left:4px solid var(--red,#ff453a);background:rgba(255,69,58,.07)!important}
+.ex-summary{border:1px dashed var(--orange,#ff9f0a);background:rgba(255,159,10,.08);border-radius:12px;padding:8px 12px;margin-bottom:10px;font-size:12.5px;line-height:1.7}
+.ex-summary .r{display:flex;justify-content:space-between;gap:10px}
+.ex-summary .big{font-weight:800;font-size:13.5px;border-top:1px solid rgba(255,159,10,.4);margin-top:3px;padding-top:3px}
+.inv-filters select{max-width:190px;padding:7px 10px;font-size:12px}
+.ex-find-item{padding:10px 12px;border-radius:12px;background:var(--glass-hover);margin-bottom:6px;cursor:pointer;border:1px solid transparent}
+.ex-find-item:hover{border-color:var(--orange,#ff9f0a)}
+.sale-done-btns.three{grid-template-columns:1fr 1fr 1fr}
+
+/* ===== v5.3 Undo ===== */
+#undo-bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:940;display:none;align-items:center;gap:8px;max-width:min(94vw,560px);padding:8px 10px 11px;border-radius:16px;background:rgba(28,28,32,.94);color:#fff;box-shadow:0 10px 34px rgba(0,0,0,.4);font-size:12.5px;overflow:hidden}
+#undo-bar .ub-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+#undo-bar .ub-time{font-variant-numeric:tabular-nums;font-weight:800;color:#ffb340;min-width:38px;text-align:right}
+#undo-bar button{border:0;border-radius:10px;padding:7px 11px;font-size:12px;font-weight:700;cursor:pointer;background:rgba(255,255,255,.14);color:#fff}
+#undo-bar button.ub-go{background:#ff9f0a;color:#1c1c20}
+#undo-bar .ub-prog{position:absolute;left:0;bottom:0;height:3px;background:#ff9f0a;transition:width 1s linear}
+@media (max-width:768px){#undo-bar{bottom:calc(70px + env(safe-area-inset-bottom,0px))}}
+.undo-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--glass-hover);margin-bottom:6px}
+.undo-item .ui-main{flex:1;min-width:0}
 </style>
 </head>
 <body>
@@ -962,7 +984,7 @@ const LS_SAFE_KEY = 'phone_shop_pos_safety_backup';
 const LS_RESET_TOKEN_KEY = 'pos_seen_reset_token';
 const LS_DIRTY_KEY = 'pos_has_unsaved';
 const LS_LAST_SYNC_KEY = 'pos_last_sync_ts';
-const POS_VERSION = 'v4.9';
+const POS_VERSION = 'v5.3';
 
 const SYNC_COLLECTIONS = ['products','stock_units','accessories','customers','sales','sale_items','repairs','credit_payments','returns','stock_adjustments','shops','shop_repairs','shop_payments','suppliers','orders','order_items','cash_transactions','users','staff','salary_payments','expenses','cash_closings','audit_logs','reload_entries','repair_payments','cash_openings','supplier_transactions','supplier_bills','supplier_payments','supplier_checks','repair_parts','free_items','developer_notifications'];
 
@@ -1093,7 +1115,7 @@ function isDirtyLS()  { try { return localStorage.getItem(LS_DIRTY_KEY) === '1';
 function getLastSyncTs() { try { return Number(localStorage.getItem(LS_LAST_SYNC_KEY)) || 0; } catch(e) { return 0; } }
 
 var cashCache = null;
-function save() { if (resetting) return; cashCache = null; cacheLocal(); saveSafetyBackup(); markDirty(); if (writeTimer) clearTimeout(writeTimer); writeTimer = setTimeout(() => { writeTimer = null; pushToFirebase(); }, 300); }
+function save() { if (resetting) return; undoCapture(); cashCache = null; cacheLocal(); saveSafetyBackup(); markDirty(); if (writeTimer) clearTimeout(writeTimer); writeTimer = setTimeout(() => { writeTimer = null; pushToFirebase(); }, 300); }
 function cacheLocal() { if (resetting) return; try { localStorage.setItem(LS_KEY, JSON.stringify(DB)); } catch(e) {} }
 function loadCache() { try { const r = localStorage.getItem(LS_KEY); if (r) return JSON.parse(r); } catch(e) {} return null; }
 function saveSafetyBackup() { if (resetting) return; try { if (!DB || !DB.users || !DB.users.length) return; localStorage.setItem(LS_SAFE_KEY, JSON.stringify({ data: DB, ts: Date.now(), version: POS_VERSION })); } catch(e) {} }
@@ -1139,18 +1161,18 @@ async function loadFromServer() {
     if (remoteValid && cachedValid) {
       if (isDirtyLS()) {
         const merged = mergeCaches(remote, DB);
-        DB = merged; lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal();
+        DB = merged; undoRebase(); lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal();
         fbConnected = true; updateStorageStatus('offline-pending');
         setTimeout(() => pushToFirebase(), 500);
         toast('♻️ Local changes merged with server', 'warn', 4000);
       } else {
-        DB = remote; lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal(); saveSafetyBackup();
+        DB = remote; undoRebase(); lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal(); saveSafetyBackup();
         fbConnected = true; updateStorageStatus('connected');
       }
       return { ok: true, hasData: true };
     }
     if (remoteValid) {
-      DB = remote; lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal(); saveSafetyBackup();
+      DB = remote; undoRebase(); lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal(); saveSafetyBackup();
       fbConnected = true; updateStorageStatus('connected');
       return { ok: true, hasData: true };
     }
@@ -1161,12 +1183,12 @@ async function loadFromServer() {
     }
     const backup = loadSafetyBackup();
     if (isValidDB(backup)) {
-      DB = backup; migrateDB(); lastSyncedDB = {}; markDirty();
+      DB = backup; undoRebase(); migrateDB(); lastSyncedDB = {}; markDirty();
       await pushToFirebase(); fbConnected = true;
       toast('♻️ Restored from safety backup', 'success', 3000);
       return { ok: true, hasData: true, restored: true };
     }
-    DB = createFreshDB(); migrateDB(); lastSyncedDB = {}; markDirty();
+    DB = createFreshDB(); undoRebase(); migrateDB(); lastSyncedDB = {}; markDirty();
     await pushToFirebase(); fbConnected = true;
     return { ok: true, hasData: false };
   } catch (e) {
@@ -1178,7 +1200,7 @@ async function loadFromServer() {
     }
     if (fbAuth.currentUser && isValidDB(DB)) { updateStorageStatus('offline-pending'); return { ok: true, hasData: true, offline: true }; }
     const backup = loadSafetyBackup();
-    if (isValidDB(backup)) { DB = backup; migrateDB(); return { ok: true, hasData: true, offline: true, restored: true }; }
+    if (isValidDB(backup)) { DB = backup; undoRebase(); migrateDB(); return { ok: true, hasData: true, offline: true, restored: true }; }
     return { ok: false, error: e.message };
   }
 }
@@ -1216,14 +1238,14 @@ function startRealtimeSync() {
       const myOps = computeDiff(lastSyncedDB, DB);
       if (myOps.length) {
         const remoteChangedSinceSync = JSON.stringify(remote) !== JSON.stringify(lastSyncedDB);
-        if (remoteChangedSinceSync) { const merged = applyOpsToDB(remote, myOps); DB = merged; lastSyncedDB = deepClone(remote); cacheLocal(); }
+        if (remoteChangedSinceSync) { const merged = applyOpsToDB(remote, myOps); DB = merged; undoRebase(); lastSyncedDB = deepClone(remote); cacheLocal(); }
         const modalOpen = document.getElementById('modal-root').innerHTML.trim().length > 0;
         if (!modalOpen) { try { updateUserBox(); buildNav(); buildMobileTabs(); render(); } catch(e){} }
         pushToFirebase(); return;
       }
     }
     if (JSON.stringify(remote) === JSON.stringify(DB)) return;
-    DB = remote; lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal(); saveSafetyBackup();
+    DB = remote; undoRebase(); lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal(); saveSafetyBackup();
     const modalOpen = document.getElementById('modal-root').innerHTML.trim().length > 0;
     if (modalOpen) return;
     try { updateUserBox(); buildNav(); buildMobileTabs(); render(); updateStorageStatus('connected'); toast('🔄 Synced from another device', 'info', 1800); } catch(e) {}
@@ -1280,7 +1302,7 @@ async function manualSync() {
   try {
     const snap = await fbRef.once('value');
     const remote = fromFirebase(snap.val());
-    if (isValidDB(remote) && !dirty) { DB = remote; lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal(); if (currentUser) { updateUserBox(); buildNav(); buildMobileTabs(); render(); } }
+    if (isValidDB(remote) && !dirty) { DB = remote; undoRebase(); lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal(); if (currentUser) { updateUserBox(); buildNav(); buildMobileTabs(); render(); } }
   } catch(e) {}
   await pushToFirebase();
   if (!dirty) toast('✅ Synced', 'success', 2000);
@@ -1826,7 +1848,7 @@ function openBillInReports(saleId) {
   if (!can('reports')) { toast('Access denied','error'); return; }
   closeModal();
   const d = (s.created_at||'').slice(0,10);
-  reportTab = 'invoices'; repRange = 'custom'; repFrom = d; repTo = d; reportQuery = s.invoice_no;
+  reportTab = 'invoices'; repRange = 'custom'; repFrom = d; repTo = d; reportQuery = s.invoice_no; repInvStatus = 'all'; repInvMethod = 'all'; repInvUser = 'all';
   navigateTo('reports');
   setTimeout(() => openBillFromSearch(saleId), 80);
 }
@@ -1838,7 +1860,7 @@ function fmtInt(n){ return (Number(n)||0).toLocaleString('en-US',{maximumFractio
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function hashPassword(pwd) { let h1 = 0x811c9dc5, h2 = 0x1000193; const s = 'pos_v2_salt' + pwd + 'pos_v2_salt'; for (let i = 0; i < s.length; i++){ const c = s.charCodeAt(i); h1 ^= c; h1 = (h1 * 0x01000193) >>> 0; h2 = ((h2 << 5) - h2 + c) >>> 0; } return 'h' + h1.toString(16).padStart(8,'0') + h2.toString(16).padStart(8,'0'); }
 function getAllCategories() { const set = new Set(ACC_CATEGORIES); DB.accessories.forEach(a => { if (a.category) set.add(a.category); }); return [...set].sort((a,b)=>a.localeCompare(b)); }
-function getSaleReturnTotal(saleId) { return DB.returns.filter(r => r.sale_id === saleId).reduce((a,r)=>a+r.refund_amount, 0); }
+function getSaleReturnTotal(saleId) { return DB.returns.filter(r => r.sale_id === saleId).reduce((a,r)=>a+(Number(r.refund_amount)||0)+(Number(r.exchange_credit)||0), 0); }
 function calcShopOutstanding(s) { const reps = DB.shop_repairs.filter(r => r.shop_id === s.id); const t = reps.reduce((b,r)=>b+(Number(r.cost)||0),0); const rc = reps.reduce((b,r)=>b+(Number(r.received)||0),0); const pmts = (DB.shop_payments||[]).filter(p=>p.shop_id === s.id).reduce((b,p)=>b+(Number(p.amount)||0),0); return Math.max(0, t - rc - pmts); }
 function calcShopStats(s) { const reps = DB.shop_repairs.filter(r => r.shop_id === s.id); const payments = (DB.shop_payments||[]).filter(p=>p.shop_id === s.id); const billed = reps.reduce((b,r)=>b+(Number(r.cost)||0),0); const fromRepairs = reps.reduce((b,r)=>b+(Number(r.received)||0),0); const fromPayments = payments.reduce((b,p)=>b+(Number(p.amount)||0),0); const received = fromRepairs + fromPayments; return { reps, payments, billed, received, fromRepairs, fromPayments, outstanding: Math.max(0, billed - received) }; }
 
@@ -1877,6 +1899,7 @@ function buildInvoiceMessage(sale) {
   if (c?.phone) msg += `▸ *Phone:* ${c.phone}\n`;
   msg += `\n${L}\n🛒 *ITEMS PURCHASED*\n`;
   items.forEach((it, idx) => {
+    if (it.item_type === 'exreturn') { msg += `\n*${idx+1}. ↩️ ${String(it.description).replace(/^RETURNED: /,'Returned: ')}*\n   Credit: *-${fmt(-it.price * it.qty)}*\n`; return; }
     const isReload = it.item_type === 'reload', isManual = it.item_type === 'manual';
     msg += `\n*${idx+1}. ${it.description}*`;
     if (it.item_code && !isReload && !isManual) msg += ` _[${it.item_code}]_`;
@@ -1885,9 +1908,10 @@ function buildInvoiceMessage(sale) {
     if (it.item_disc > 0) msg += `   🏷️ Discount: -${fmt(it.item_disc * it.qty)} (was ${fmt(it.list_price)} each)\n`;
     const w = warrantyText(it.warranty_months); if (w) msg += `   🛡️ Warranty: _${w}_\n`;
   });
-  msg += `\n${L}\n*PAYMENT SUMMARY*\n\nSubtotal:    ${fmt(sale.subtotal)}\n`;
+  msg += `\n${L}\n*PAYMENT SUMMARY*\n\n${sale.exchange ? 'Net items:' : 'Subtotal:'}    ${fmt(sale.subtotal)}\n`;
   if (sale.discount) msg += `Discount:   -${fmt(sale.discount)}\n`;
-  msg += `*TOTAL:       ${fmt(sale.total)}*\nPaid (${sale.payment_method}): ${fmt(saleGiven(sale))}\n`;
+  if (sale.total < 0) { msg += `*REFUND TO CUSTOMER: ${fmt(-sale.total)}*\n✅ Refunded in cash\n`; return msg + `\n${L}\n_Thank you!_ 🙏`; }
+  msg += `*${sale.exchange ? 'TO PAY (DIFFERENCE)' : 'TOTAL'}:       ${fmt(sale.total)}*\nPaid (${sale.payment_method}): ${fmt(saleGiven(sale))}\n`;
   if (sale.change > 0.01) msg += `*CHANGE:     ${fmt(sale.change)}*\n`;
   if (sale.balance > 0) { msg += `\n⚠️ *Balance Due:* ${fmt(sale.balance)}\n`; if (c && (Number(c.balance)||0) > 0) msg += `💳 *Total Owed:* ${fmt(c.balance)}\n`; }
   else msg += `\n✅ *Fully Paid*\n`;
@@ -2111,7 +2135,7 @@ function exportJSON() { const d = JSON.stringify(DB, null, 2); const a = documen
 function importJSON() {
   if (!requireAdmin()) return;
   const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json';
-  inp.onchange = async e => { const f = e.target.files[0]; if (!f) return; try { const parsed = JSON.parse(await f.text()); const data = parsed.data || parsed; if (!isValidDB(data)) throw new Error('Invalid'); if (!confirm('Replace ALL data?')) return; DB = data; migrateDB(); save(); applyTheme(DB.settings.theme||'dark'); applyLogo(); render(); toast('Imported','success'); } catch(err){ toast('Import failed: '+err.message,'error'); } };
+  inp.onchange = async e => { const f = e.target.files[0]; if (!f) return; try { const parsed = JSON.parse(await f.text()); const data = parsed.data || parsed; if (!isValidDB(data)) throw new Error('Invalid'); if (!confirm('Replace ALL data?')) return; DB = data; undoRebase(); migrateDB(); save(); applyTheme(DB.settings.theme||'dark'); applyLogo(); render(); toast('Imported','success'); } catch(err){ toast('Import failed: '+err.message,'error'); } };
   inp.click();
 }
 
@@ -2811,11 +2835,11 @@ let salesCat = 'all', salesResults = [], salesSelIdx = -1, salesSelExplicit = fa
 let saleCust = { name:'', phone:'', idnum:'', address:'', paid:'' };
 function saleCustReset() { saleCust = { name:'', phone:'', idnum:'', address:'', paid:'' }; }
 function renderSales(root) {
-  cart = pendingCartItems.splice(0); salesSearchQ = ''; saleCustReset(); salesResults = []; salesSelIdx = -1; salesSelExplicit = false;
+  cart = pendingCartItems.splice(0); salesSearchQ = ''; saleCustReset(); if (window.__pendingExCust) { Object.assign(saleCust, window.__pendingExCust); window.__pendingExCust = null; } salesResults = []; salesSelIdx = -1; salesSelExplicit = false;
   root.innerHTML = `
     <div class="view-shell" style="overflow:hidden">
       <div class="page-head"><h1>New Sale</h1>
-        <div class="head-actions"><button class="ios-pill purple sm" onclick="showReloadSaleModal()">📲 Reload</button><button class="ios-pill teal sm" onclick="addReloadToCart()">➕ Custom Item</button></div>
+        <div class="head-actions"><button class="ios-pill sm" onclick="showUndoHistory()" title="Undo (Ctrl+Z)">↩️ Undo</button><button class="ios-pill orange sm" onclick="showExchangeFinder()">🔄 Exchange</button><button class="ios-pill purple sm" onclick="showReloadSaleModal()">📲 Reload</button><button class="ios-pill teal sm" onclick="addReloadToCart()">➕ Custom Item</button></div>
       </div>
       <div class="sale-split">
         <div class="card sale-left">
@@ -2829,8 +2853,9 @@ function renderSales(root) {
           <h3>🛒 Cart <span class="muted small" id="cart-count" style="float:right;font-weight:500"></span></h3>
           <div class="sale-cart-area" id="cart-list"></div>
           <div class="cart-footer">
+            <div id="ex-summary"></div>
             ${field('Bill discount', '<input id="discount" class="ios-input" placeholder="0" value="0" type="number" step="0.01" oninput="updateTotal()" style="padding:8px 10px">', false, '<span class="kbd" style="margin:0">Alt+D</span>')}
-            <div class="total-box"><div class="muted small" style="font-weight:700;letter-spacing:.06em">TOTAL</div><div class="total-val" id="total">0.00</div></div>
+            <div class="total-box"><div class="muted small" id="total-label" style="font-weight:700;letter-spacing:.06em">TOTAL</div><div class="total-val" id="total">0.00</div></div>
             <div class="row gap" style="margin-top:10px"><button class="ios-pill ghost" style="flex:1" onclick="clearCart()">Clear <span class="kbd">Alt+C</span></button><button class="ios-pill green" style="flex:2" onclick="completeSale()" id="complete-btn">✓ Complete Sale <span class="kbd" style="color:#fff;border-color:rgba(255,255,255,.5);background:rgba(255,255,255,.18)">F4</span></button></div>
           </div>
         </div>
@@ -2840,10 +2865,13 @@ function renderSales(root) {
 }
 function updateSalesSearchPlaceholder() { const inp = document.getElementById('sales-search-input'); if (!inp) return; inp.placeholder = 'Search phones & accessories — name / code / IMEI / barcode' + (window.matchMedia('(hover:hover) and (min-width:769px)').matches ? '  [F2]' : ''); }
 function salesCatList() {
-  const set = new Set(); let none = false;
-  DB.accessories.forEach(a => { if (a.category) set.add(a.category); else none = true; });
-  const out = [['all','All'], ['phones','📱 Phones'], ...[...set].sort((a,b) => a.localeCompare(b)).map(c => [c, c])];
-  if (none) out.push(['__none','Other']);
+  const counts = {}; let none = 0;
+  DB.accessories.forEach(a => { if ((a.qty||0) > 0 || repairHold(a.id) > 0) { if (a.category) counts[a.category] = (counts[a.category]||0) + 1; else none++; } });
+  const phones = DB.stock_units.filter(u => u.status === 'in_stock').length;
+  const out = [['all','All']];
+  if (phones) out.push(['phones', '📱 Phones (' + phones + ')']);
+  Object.keys(counts).sort((a,b) => a.localeCompare(b)).forEach(c => out.push([c, c + ' (' + counts[c] + ')']));
+  if (none) out.push(['__none', 'Other (' + none + ')']);
   return out;
 }
 function renderSalesCats() {
@@ -2937,14 +2965,25 @@ function salesSearch(v) {
   res.innerHTML = html;
   salesSelExplicit = false; salesSelIdx = -1; salesHighlight();
 }
-function updateTotal() {
+function cartNet() {
+  const ex = cart.filter(i => i.type === 'exreturn');
+  return { hasEx: ex.length > 0, credit: ex.reduce((a,i) => a + (-i.price)*i.qty, 0), newSub: cart.filter(i => i.type !== 'exreturn').reduce((a,i) => a + i.price*i.qty, 0) };
+}
+function cartTotalNow() {
   const st = cart.reduce((a,i)=>a+i.price*i.qty,0);
   const disc = Number(document.getElementById('discount')?.value||0);
-  const total = Math.max(0, st-disc);
-  const el = document.getElementById('total'); if (el) el.textContent = fmt(total);
+  return { st, disc, total: cartNet().hasEx ? st - disc : Math.max(0, st - disc) };
+}
+function updateTotal() {
+  const { disc, total } = cartTotalNow(), n = cartNet();
+  const el = document.getElementById('total'); if (el) el.textContent = fmt(Math.abs(total)) ;
+  const lb = document.getElementById('total-label');
+  if (lb) lb.textContent = !n.hasEx ? 'TOTAL' : (total < -0.009 ? 'REFUND TO CUSTOMER' : (total > 0.009 ? 'CUSTOMER PAYS (DIFFERENCE)' : 'EVEN EXCHANGE'));
+  const bx = document.getElementById('ex-summary');
+  if (bx) bx.innerHTML = n.hasEx ? `<div class="ex-summary"><div class="r"><span>🆕 New items</span><b>+${fmtInt(n.newSub)}</b></div><div class="r"><span>↩️ Returned items</span><b class="danger-c">−${fmtInt(n.credit)}</b></div>${disc?`<div class="r"><span>Discount</span><b>−${fmtInt(disc)}</b></div>`:''}<div class="r big"><span>${total < -0.009 ? 'Refund to customer' : (total > 0.009 ? 'Customer pays' : 'No difference')}</span><b>${fmtInt(Math.abs(total))}</b></div></div>` : '';
 }
 function clearCart() {
-  cart = []; saleCustReset(); renderCart();
+  cart = []; saleCustReset(); renderCart(); renderSalesCats();
   const d = document.getElementById('discount'); if (d) d.value = '0';
   updateTotal(); salesClearSearch();
 }
@@ -2974,7 +3013,11 @@ function renderPayPopup() {
   const top = `<div class="center" style="margin-bottom:12px"><div class="muted small" style="font-weight:700;letter-spacing:.06em">TOTAL</div><div style="font-size:34px;font-weight:800">${payMoney(s.total)}</div></div>`;
   const tabs = `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px">${PAY_METHODS.map(([k,l],i) => `<button type="button" title="Alt+${i+1}" class="ios-pill ${s.method===k?'blue':'ghost'} sm" onclick="payMethod('${k}')">${l} <span class="kbd">Alt+${i+1}</span></button>`).join('')}</div>`;
   const cancelBtn = '<button type="button" class="ios-pill ghost" onclick="closeModal()">Cancel</button>';
-  if (s.step === 'change') {
+  if (s.total < -0.009) {
+    const n = cartNet();
+    inner = `<div class="center" style="margin-bottom:10px"><div class="muted small" style="font-weight:700;letter-spacing:.06em">REFUND TO CUSTOMER</div><div style="font-size:34px;font-weight:800;color:var(--green)">${payMoney(-s.total)}</div></div><div class="ex-summary"><div class="r"><span>🆕 New items</span><b>+${fmtInt(n.newSub)}</b></div><div class="r"><span>↩️ Returned items</span><b class="danger-c">−${fmtInt(n.credit)}</b></div></div><div class="center" style="margin:6px 0 10px">Give <b>${payMoney(-s.total)}</b> back to the customer in cash</div>${payCustBlock(false)}<div class="center muted small kh" style="margin:10px 0">Press <b>Enter</b> to complete</div><div class="row gap" style="justify-content:flex-end">${cancelBtn}<button type="button" class="ios-pill green" id="pay-done" style="flex:1" onclick="payFinalize()">✓ Complete &amp; Refund</button></div>`;
+    focusId = 'pay-done';
+  } else if (s.step === 'change') {
     const ch = s.received - s.total;
     inner = `<div class="center muted small" style="margin-bottom:6px">Customer gave <b>${payMoney(s.received)}</b> · Total <b>${payMoney(s.total)}</b></div><div class="sale-change-hero"><div class="label">💰 Give change</div><div class="val">${payMoney(ch)}</div></div><div class="center muted small kh" style="margin:10px 0">Press <b>Enter</b> to complete the sale</div><div class="row gap" style="justify-content:flex-end"><button type="button" class="ios-pill ghost" onclick="payBack()">← Back</button><button type="button" class="ios-pill green" id="pay-done" style="flex:1" onclick="payFinalize()">✓ Complete Sale</button></div>`;
     focusId = 'pay-done';
@@ -3011,6 +3054,7 @@ function payFinalize() {
   payCustSync();
   const name = saleCust.name.trim(), phone = saleCust.phone.trim(), idnum = (saleCust.idnum||'').trim(), address = (saleCust.address||'').trim();
   let method = s.method, paidFinal = s.total, change = 0, balance = 0, custInfo = { name, phone, idnum:'', address:'' };
+  if (s.total < -0.009) method = 'cash';
   if (s.method === 'cash') { paidFinal = s.received > 0 ? s.received : s.total; change = Math.max(0, paidFinal - s.total); }
   else if (s.method === 'credit') {
     const paid = Number(saleCust.paid||0), fx = id => { const e = document.getElementById(id); if (e) e.focus(); };
@@ -3049,6 +3093,7 @@ function renderCart() {
   if (cnt) cnt.textContent = cart.length ? `${cart.reduce((a,i)=>a+i.qty,0)} item${cart.reduce((a,i)=>a+i.qty,0)!==1?'s':''}` : '';
   if (!cart.length) el.innerHTML = '<p class="muted center pad small">Cart empty</p>';
   else el.innerHTML = cart.map((it,i) => {
+    if (it.type === 'exreturn') return `<div class="item-row ex-return-row"><div class="item-info" style="flex:1"><div class="row gap" style="margin-bottom:3px;flex-wrap:wrap">${codeChip(it.code, it.src_type==='accessory', false, '')}<span class="strong" style="font-size:12px">↩️ ${esc(it.desc).slice(0,60)}</span></div><div class="muted small">Returned ${it.qty} × ${fmtInt(-it.price)} · ${it.cond==='good'?'✅ restock':'❌ write-off'} · from ${esc(it.orig_invoice||'')}</div></div><div class="strong danger-c">−${fmtInt(-it.price*it.qty)}</div><button class="ios-pill red sm" onclick="removeFromCart(${i})">✕</button></div>`;
     const isReload = it.type === 'reload', isManual = it.type === 'manual';
     const qc = it.type==='accessory' ? `<div class="qty-ctrl"><button onclick="cartQty(${i},-1)">−</button><span>${it.qty}</span><button onclick="cartQty(${i},1)">+</button></div>` : '';
     const rc = (isReload || isManual || it.type==='repair') ? 'item-row reload-item' : 'item-row';
@@ -3066,10 +3111,8 @@ function payQuick(total) { const s = new Set([Math.round(total*100)/100]); [100,
 function completeSale() {
   if (!cart.length) { toast('Cart is empty','error'); return; }
   if (document.getElementById('modal-root').children.length) return;
-  const disc = Number(document.getElementById('discount')?.value||0);
-  const st = cart.reduce((a,i) => a + i.price*i.qty, 0);
-  const total = Math.max(0, st - disc);
-  payState = { total, disc, method:'cash', step:'pay', received:0, changeAt:0, busy:false };
+  const { disc, total } = cartTotalNow();
+  payState = { total, disc, method: total < -0.009 ? 'refund' : 'cash', step:'pay', received:0, changeAt:0, busy:false };
   window.__refocusSales = true;
   renderPayPopup();
 }
@@ -3097,7 +3140,7 @@ function postSaleActions(saleId) {
   const c = DB.customers.find(x => x.id === s.customer_id);
   const ch = Number(s.change)||0;
   postOpenedAt = Date.now(); window.__refocusSales = true; window.__noEnterUntil = Date.now() + 500;
-  document.getElementById('modal-root').innerHTML = `<div class="modal-bg" onclick="if(event.target===this) closeModal()"><div class="modal" style="max-width:400px" onkeydown="postKey(event,${saleId})"><div class="center"><div style="font-size:40px">✅</div><h2 style="margin:4px 0">Sale complete</h2><div class="muted small">${esc(s.invoice_no)} · <b>${fmtInt(s.total)}</b>${ch>0.01?` · change <b>${fmtInt(ch)}</b>`:''}${c?.name?` · ${esc(c.name)}`:''}</div></div><div style="display:grid;gap:10px;margin:18px 0 12px"><button type="button" class="ios-pill blue" style="padding:14px" onclick="printSaleReceipt(${saleId})">🖨️ Print Bill <span class="muted small kh">(P)</span></button><button type="button" class="ios-pill green" style="padding:14px" onclick="promptWhatsApp(${saleId})">💬 WhatsApp Bill <span class="muted small kh">(W)</span></button></div><button type="button" class="ios-pill ghost" id="post-done" style="width:100%" onclick="closeModal()">Done<span class="kh"> — press Enter to close</span></button></div></div>`;
+  document.getElementById('modal-root').innerHTML = `<div class="modal-bg" onclick="if(event.target===this) closeModal()"><div class="modal" style="max-width:400px" onkeydown="postKey(event,${saleId})"><div class="center"><div style="font-size:40px">✅</div><h2 style="margin:4px 0">Sale complete</h2><div class="muted small">${esc(s.invoice_no)} · <b>${fmtInt(s.total)}</b>${ch>0.01?` · change <b>${fmtInt(ch)}</b>`:''}${c?.name?` · ${esc(c.name)}`:''}</div></div><div style="display:grid;gap:10px;margin:18px 0 12px"><button type="button" class="ios-pill blue" style="padding:14px" onclick="printSaleReceipt(${saleId})">🖨️ Print Bill <span class="muted small kh">(P)</span></button><button type="button" class="ios-pill green" style="padding:14px" onclick="promptWhatsApp(${saleId})">💬 WhatsApp Bill <span class="muted small kh">(W)</span></button><button type="button" class="ios-pill orange" style="padding:14px" onclick="saleBillPDF(${saleId},'share')">📤 Send PDF Bill <span class="muted small kh">(S)</span></button><button type="button" class="ios-pill" style="padding:14px" onclick="saleBillPDF(${saleId},'download')">📄 Download PDF (A4) <span class="muted small kh">(D)</span></button></div><button type="button" class="ios-pill ghost" id="post-done" style="width:100%" onclick="closeModal()">Done<span class="kh"> — press Enter to close</span></button></div></div>`;
   setTimeout(() => document.getElementById('post-done')?.focus(), 30);
 }
 function postKey(e, saleId) {
@@ -3109,6 +3152,8 @@ function postKey(e, saleId) {
   const k = (e.key||'').toLowerCase();
   if (k === 'p') { e.preventDefault(); printSaleReceipt(saleId); }
   else if (k === 'w') { e.preventDefault(); promptWhatsApp(saleId); }
+  else if (k === 's') { e.preventDefault(); saleBillPDF(saleId, 'share'); }
+  else if (k === 'd') { e.preventDefault(); saleBillPDF(saleId, 'download'); }
 }
 
 function finalizeSale({ disc, paidFinal, total, change, balance, method, custInfo, auto }) {
@@ -3122,14 +3167,18 @@ function finalizeSale({ disc, paidFinal, total, change, balance, method, custInf
     else { if (cphone && !c.phone) c.phone = cphone; if (cidnum && !c.id_number) c.id_number = cidnum; if (caddress && !c.address) c.address = caddress; }
     cust_id = c.id;
   }
+  if (!cust_id) { const ex0 = cart.find(i => i.type === 'exreturn' && i.ex_customer_id); if (ex0) cust_id = ex0.ex_customer_id; }
+  const exN = cartNet();
   const inv = 'INV-' + today().replace(/-/g,'') + '-' + String(DB.ids.sales).padStart(4,'0');
   const cost_total = cart.reduce((a,i)=>a+i.cost*i.qty,0);
   const st = cart.reduce((a,i)=>a+i.price*i.qty,0);
   const items_discount = cart.reduce((a,i)=>a+((i.list_price ?? i.price) - i.price)*i.qty,0);
-  const sale = { id:nextId('sales'), invoice_no:inv, customer_id:cust_id, subtotal:st, discount:disc, total, cost_total, payment_method:method, paid_amount:Math.max(0, paidFinal - change), received:paidFinal, items_discount, change, balance, created_at:now(), user_id:currentUser?.id||null };
+  const sale = { id:nextId('sales'), invoice_no:inv, customer_id:cust_id, subtotal:st, discount:disc, total, cost_total, payment_method:method, paid_amount:(paidFinal < 0 ? paidFinal : Math.max(0, paidFinal - change)), received:paidFinal, items_discount, change, balance, created_at:now(), user_id:currentUser?.id||null };
+  if (exN.hasEx) { sale.exchange = true; sale.exchange_credit = exN.credit; sale.exchange_new = exN.newSub; sale.exchange_from = [...new Set(cart.filter(i=>i.type==='exreturn').map(i=>i.orig_invoice))]; }
   DB.sales.push(sale);
   const repDelivered = [], repPending = [];
   cart.forEach(it => {
+    if (it.type === 'exreturn') { exApply(it, sale, inv); return; }
     DB.sale_items.push({ repair_id: it.type==='repair' ? it.repair_id : null, id:nextId('sale_items'), sale_id:sale.id, item_type: it.type || 'phone', category: it.type==='accessory' ? (DB.accessories.find(x=>Number(x.id)===Number(it.accessory_id))?.category || '') : (it.type==='phone' ? 'Mobile Phone' : (it.type==='reload' ? 'Reload' : (it.type==='repair' ? 'Repair' : ''))), item_code: it.code || '', barcode: it.barcode || '', warranty_months: it.warranty_months || 0, stock_unit_id: it.type==='phone' ? it.unit_id : null, accessory_id: it.type==='accessory' ? it.accessory_id : null, batch_id: it.type==='accessory' ? (it.batch_id ?? null) : null, product_id: it.type==='phone' ? it.product_id : null, description:it.free?('FREE: '+it.desc):it.desc, free:!!it.free, price:it.price, list_price:(it.list_price ?? it.price), item_disc:((it.list_price ?? it.price) - it.price), qty:it.qty, cost:it.cost });
     if (it.type === 'phone') { const u = DB.stock_units.find(x=>x.id===it.unit_id); if (u){ u.status = 'sold'; u.sold_at = now(); } }
     else if (it.type === 'accessory') { const a = DB.accessories.find(x=>x.id===it.accessory_id); if (a){ accRemoveStock(a, it.qty, it.batch_id); } }
@@ -3168,6 +3217,7 @@ function showSaleCompleteModal(saleId) {
     ${change > 0.01 ? `<div class="sale-change-hero"><div class="label">💰 Customer Change</div><div class="val">${fmtInt(change)}</div></div>` : ''}
     ${balance > 0.01 ? `<div class="danger-box" style="margin-bottom:16px;padding:10px 14px"><div class="danger-text" style="font-size:12.5px">⚠️ Balance due: <b>${fmtInt(balance)}</b>${totalOwed ? `<br>Total owed: <b>${fmtInt(totalOwed)}</b>` : ''}</div></div>` : (change > 0.01 ? '' : `<div style="background:rgba(48,209,88,.1);border:1px solid rgba(48,209,88,.4);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:16px;font-size:12.5px;font-weight:600;color:var(--green)">✓ Fully Paid</div>`)}
     <div class="sale-done-btns"><button class="ios-pill blue" onclick="printSaleReceipt(${s.id})">🖨️ Print Bill</button><button class="ios-pill wa" onclick="waFromSaleModal(${s.id})">💬 WhatsApp</button></div>
+    <div class="sale-done-btns"><button class="ios-pill orange" onclick="saleBillPDF(${s.id},'share')">📤 Send PDF</button><button class="ios-pill" onclick="saleBillPDF(${s.id},'download')">📄 PDF (A4)</button></div>
     <button class="ios-pill ghost full" onclick="closeModal()">Close</button>
     ${!hasPhone ? '<div class="sale-done-wa-note">💡 No customer phone saved</div>' : ''}
   </div></div>`;
@@ -3184,7 +3234,7 @@ function waFromSaleModal(saleId) {
 function showReturnModal(saleId) {
   const sale = DB.sales.find(x=>x.id===saleId); if (!sale) return;
   currentReturnSaleId = saleId;
-  const returnable = DB.sale_items.filter(i=>i.sale_id===saleId).filter(it => it.item_type !== 'reload' && it.item_type !== 'manual');
+  const returnable = DB.sale_items.filter(i=>i.sale_id===saleId).filter(it => it.item_type !== 'reload' && it.item_type !== 'manual' && it.item_type !== 'exreturn');
   if (!returnable.length) { toast('No returnable items','warn'); return; }
   const sc = DB.customers.find(c => c.id === sale.customer_id);
   const cb = sc ? (Number(sc.balance)||0) : 0;
@@ -3260,7 +3310,7 @@ function renderReturnsList() {
   const fh = `<div class="filter-pills" style="margin-bottom:12px"><div class="filter-pill ${returnsFilter==='all'?'active':''}" onclick="returnsFilter='all';runReport()">All <span class="count">${ac}</span></div><div class="filter-pill green-pill ${returnsFilter==='good'?'active':''}" onclick="returnsFilter='good';runReport()">✅ Restocked <span class="count">${gc}</span></div><div class="filter-pill red-pill ${returnsFilter==='damaged'?'active':''}" onclick="returnsFilter='damaged';runReport()">❌ Written-off <span class="count">${dc}</span></div></div>`;
   if (!returns.length) return fh + '<div class="card center pad muted">No returns yet</div>';
   return `${fh}<div class="stat-grid" style="margin-bottom:14px"><div class="stat"><div class="stat-label">Returns</div><div class="stat-value danger-c">${returns.length}</div></div><div class="stat"><div class="stat-label">Refunded</div><div class="stat-value danger-c">${fmtInt(tr)}</div></div></div>
-  <div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Date</th><th>Invoice</th><th>Item</th><th>Qty</th><th>Condition</th><th>Refund</th><th>Method</th><th>Reason</th></tr></thead><tbody>${returns.map(r => `<tr><td class="muted small">${esc(r.created_at.slice(0,16))}</td><td class="muted small">${esc(r.invoice_no||'-')}</td><td><div class="row gap" style="flex-wrap:wrap">${codeChip(r.item_code, r.item_type==='accessory')}<span class="strong">${esc(r.description)}</span></div></td><td class="danger-c strong">${r.qty}</td><td>${r.restocked ? '✅ Good' : '❌ Damaged'}</td><td class="danger-c strong">${fmtInt(r.refund_amount)}</td><td>${esc(r.refund_method||'-')}</td><td class="muted small">${esc(r.reason||'-')}</td></tr>`).join('')}</tbody></table></div>`;
+  <div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Date</th><th>Invoice</th><th>Item</th><th>Qty</th><th>Condition</th><th>Refund</th><th>Method</th><th>Reason</th></tr></thead><tbody>${returns.map(r => `<tr><td class="muted small">${esc(r.created_at.slice(0,16))}</td><td class="muted small">${esc(r.invoice_no||'-')}</td><td><div class="row gap" style="flex-wrap:wrap">${codeChip(r.item_code, r.item_type==='accessory')}<span class="strong">${esc(r.description)}</span></div></td><td class="danger-c strong">${r.qty}</td><td>${r.restocked ? '✅ Good' : '❌ Damaged'}</td><td class="danger-c strong">${r.refund_method==='exchange' ? '🔄 '+fmtInt(r.exchange_credit||0) : fmtInt(r.refund_amount)}</td><td>${r.refund_method==='exchange' ? 'exchange → '+esc(r.exchange_invoice||'') : esc(r.refund_method||'-')}</td><td class="muted small">${esc(r.reason||'-')}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 let phoneStockTab = 'products';
@@ -3907,6 +3957,7 @@ function showSupplierDetail(id) {
 }
 
 let reportQuery = '', reportTab = 'overview', repRange = '1m', repFrom = today().slice(0,8)+'01', repTo = today(), repCashType = 'all';
+let repInvStatus = 'all', repInvMethod = 'all', repInvUser = 'all';
 let staffQuery = '', expenseQuery = '';
 function moneyInput(id, placeholder='0.00') { return `<input id="${id}" class="ios-input" type="number" min="0" step="0.01" placeholder="${placeholder}">`; }
 function renderStaff(root) {
@@ -4339,9 +4390,15 @@ function runReport() {
  }
  let sales = DB.sales.filter(s => inR(s.created_at));
  if (q) sales = sales.filter(s => { const c = DB.customers.find(x=>x.id===s.customer_id); const u = DB.users.find(x=>x.id===s.user_id); if ((s.invoice_no||'').toLowerCase().includes(q) || (c?.name||'').toLowerCase().includes(q) || (c?.phone||'').toLowerCase().includes(q) || (u?.name||'').toLowerCase().includes(q)) return true; return DB.sale_items.some(it => it.sale_id===s.id && ((it.description||'').toLowerCase().includes(q) || (it.item_code||'').toLowerCase().includes(q) || (it.barcode||'').toLowerCase().includes(q))); });
+ if (repInvStatus === 'paid') sales = sales.filter(s => !(s.balance > 0.009));
+ else if (repInvStatus === 'due') sales = sales.filter(s => s.balance > 0.009);
+ else if (repInvStatus === 'returned') sales = sales.filter(s => DB.returns.some(r => r.sale_id === s.id));
+ else if (repInvStatus === 'exchange') sales = sales.filter(s => s.exchange || DB.returns.some(r => r.sale_id === s.id && r.refund_method === 'exchange'));
+ if (repInvMethod !== 'all') sales = sales.filter(s => (s.payment_method||'cash') === repInvMethod);
+ if (repInvUser !== 'all') sales = sales.filter(s => String(s.user_id) === repInvUser);
  sales.sort((a,b)=>b.id-a.id);
  const total = sales.reduce((a,s)=>a+s.total,0), paid = sales.reduce((a,s)=>a+salePaid(s),0), bal = sales.reduce((a,s)=>a+(s.balance||0),0);
- body.innerHTML = `<div class="muted small" style="margin-bottom:8px">${f} → ${t}</div><div class="stat-grid" style="margin-bottom:14px">${st('Invoices',sales.length,'primary-c')}${st('Sales Total',fmtInt(total))}${st('Received',fmtInt(paid),'success')}${st('Balance Due',fmtInt(bal),'warn')}</div>${sales.length ? `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Total</th><th>Paid</th><th>Balance</th><th></th></tr></thead><tbody>${sales.slice(0,200).map(s => { const c = DB.customers.find(x=>x.id===s.customer_id); const rt = getSaleReturnTotal(s.id); return `<tr><td class="muted small">${esc(s.invoice_no)}${rt>0?' <span class="danger-c">↩</span>':''}</td><td class="muted small">${esc((s.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(c?.name||'Walk-in')}</td><td class="strong">${fmtInt(s.total)}</td><td class="success">${fmtInt(salePaid(s))}</td><td class="${s.balance>0?'warn':''}">${fmtInt(s.balance)}</td><td style="white-space:nowrap"><button class="ios-pill sm" onclick="openBillFromSearch(${s.id})">👁 View</button> <button class="ios-pill red sm" onclick="showReturnModal(${s.id})">↩️</button></td></tr>`; }).join('')}</tbody></table></div>${sales.length>200?'<p class="muted center small" style="margin-top:8px">Showing latest 200 — narrow the period or search</p>':''}` : '<div class="card center pad muted">No invoices found</div>'}`;
+ body.innerHTML = `<div class="muted small" style="margin-bottom:8px">${f} → ${t}</div>${invFilterBar()}<div class="stat-grid" style="margin-bottom:14px">${st('Invoices',sales.length,'primary-c')}${st('Sales Total',fmtInt(total))}${st('Received',fmtInt(paid),'success')}${st('Balance Due',fmtInt(bal),'warn')}</div>${sales.length ? `<div class="ios-table-wrap"><table class="ios-table"><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Total</th><th>Paid</th><th>Balance</th><th></th></tr></thead><tbody>${sales.slice(0,200).map(s => { const c = DB.customers.find(x=>x.id===s.customer_id); const rt = getSaleReturnTotal(s.id); return `<tr><td class="muted small">${esc(s.invoice_no)}${rt>0?' <span class="danger-c">↩</span>':''}${s.exchange?' <span class="warn" title="Exchange bill">🔄</span>':''}</td><td class="muted small">${esc((s.created_at||'').slice(0,16).replace('T',' '))}</td><td>${esc(c?.name||'Walk-in')}</td><td class="strong">${fmtInt(s.total)}</td><td class="success">${fmtInt(salePaid(s))}</td><td class="${s.balance>0?'warn':''}">${fmtInt(s.balance)}</td><td style="white-space:nowrap"><button class="ios-pill sm" onclick="openBillFromSearch(${s.id})">👁 View</button> <button class="ios-pill sm" title="Exchange" onclick="showExchangeModal(${s.id})">🔄</button> <button class="ios-pill red sm" title="Return" onclick="showReturnModal(${s.id})">↩️</button> <button class="ios-pill sm" title="PDF bill" onclick="saleBillPDF(${s.id},'download')">📄</button> <button class="ios-pill green sm" title="Send PDF" onclick="saleBillPDF(${s.id},'share')">📤</button></td></tr>`; }).join('')}</tbody></table></div>${sales.length>200?'<p class="muted center small" style="margin-top:8px">Showing latest 200 — narrow the period or search</p>':''}` : '<div class="card center pad muted">No invoices found</div>'}`;
 }
 function exportReportCSV() {
   const from = repFrom, to = repTo;
@@ -4379,7 +4436,7 @@ function billSearch(v) {
     const c = DB.customers.find(x=>x.id===s.customer_id); const u = DB.users.find(x=>x.id===s.user_id);
     const items = DB.sale_items.filter(i=>i.sale_id===s.id); const rt = getSaleReturnTotal(s.id);
     const itemsHTML = items.map(it => { const m = matchedItems.find(mi => mi.id === it.id); return `<div class="bill-match-item ${m?'matched':''}"><div style="flex:1;min-width:0">${codeChip(it.item_code, it.item_type==='accessory', false, it.barcode)} <span class="strong">${esc(it.description).slice(0,80)}</span></div><div style="text-align:right;flex-shrink:0"><span class="muted small">${it.qty} × ${fmtInt(it.price)}</span> <span class="strong">= ${fmtInt(it.qty * it.price)}</span></div></div>`; }).join('');
-    return `<div class="bill-match" onclick="openBillFromSearch(${s.id})"><div class="bill-match-head"><div style="flex:1;min-width:0"><div class="row gap" style="margin-bottom:4px;flex-wrap:wrap"><span class="code-chip" style="background:rgba(255,122,0,.2)">${esc(s.invoice_no)}</span>${rt>0?'<span class="danger-c small">↩ returned</span>':''}${s.balance>0?`<span class="warn small">⚠ bal ${fmtInt(s.balance)}</span>`:'<span class="success small">✓ paid</span>'}</div><div class="muted small">📅 ${esc(s.created_at)} · 👤 ${esc(c?.name||'Walk-in')}${c?.phone?' · 📞 '+esc(c.phone):''}${u?' · by '+esc(u.name):''}</div></div><div style="text-align:right;flex-shrink:0"><div style="font-size:18px;font-weight:800">${fmtInt(s.total)}</div><div class="small muted">${items.length} item${items.length!==1?'s':''}</div></div></div><div class="bill-match-items">${itemsHTML}</div><div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap" onclick="event.stopPropagation()"><button class="ios-pill blue sm" onclick="printSaleReceipt(${s.id})">🖨️ Print</button><button class="ios-pill wa sm" onclick="promptWhatsApp(${s.id})">💬 WhatsApp</button><button class="ios-pill sm" onclick="openBillFromSearch(${s.id})">👁 View</button></div></div>`;
+    return `<div class="bill-match" onclick="openBillFromSearch(${s.id})"><div class="bill-match-head"><div style="flex:1;min-width:0"><div class="row gap" style="margin-bottom:4px;flex-wrap:wrap"><span class="code-chip" style="background:rgba(255,122,0,.2)">${esc(s.invoice_no)}</span>${rt>0?'<span class="danger-c small">↩ returned</span>':''}${s.balance>0?`<span class="warn small">⚠ bal ${fmtInt(s.balance)}</span>`:'<span class="success small">✓ paid</span>'}</div><div class="muted small">📅 ${esc(s.created_at)} · 👤 ${esc(c?.name||'Walk-in')}${c?.phone?' · 📞 '+esc(c.phone):''}${u?' · by '+esc(u.name):''}</div></div><div style="text-align:right;flex-shrink:0"><div style="font-size:18px;font-weight:800">${fmtInt(s.total)}</div><div class="small muted">${items.length} item${items.length!==1?'s':''}</div></div></div><div class="bill-match-items">${itemsHTML}</div><div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap" onclick="event.stopPropagation()"><button class="ios-pill blue sm" onclick="printSaleReceipt(${s.id})">🖨️ Print</button><button class="ios-pill wa sm" onclick="promptWhatsApp(${s.id})">💬 WhatsApp</button><button class="ios-pill green sm" onclick="saleBillPDF(${s.id},'share')">📤 PDF</button><button class="ios-pill sm" onclick="showExchangeModal(${s.id})">🔄 Exchange</button><button class="ios-pill sm" onclick="openBillFromSearch(${s.id})">👁 View</button></div></div>`;
   }).join('');
 }
 function openBillFromSearch(saleId) {
@@ -4387,7 +4444,7 @@ function openBillFromSearch(saleId) {
   const c = DB.customers.find(x=>x.id===s.customer_id); const u = DB.users.find(x=>x.id===s.user_id);
   const items = DB.sale_items.filter(i=>i.sale_id===saleId); const rt = getSaleReturnTotal(saleId);
   const returns = DB.returns.filter(r => r.sale_id === saleId);
-  openModal(`🧾 ${s.invoice_no}`, `<div style="background:var(--glass-hover);padding:12px;border-radius:var(--radius-md);margin-bottom:14px"><div class="row gap" style="flex-wrap:wrap;margin-bottom:6px"><span class="strong" style="font-size:14px">${esc(s.invoice_no)}</span>${rt>0?'<span class="danger-c small">↩ returned</span>':''}${s.balance>0?`<span class="warn small">⚠ bal ${fmtInt(s.balance)}</span>`:'<span class="success small">✓ paid</span>'}</div><div class="muted small">📅 ${esc(s.created_at)}</div>${c?`<div class="muted small">👤 ${esc(c.name)}${c.phone?' · 📞 '+esc(c.phone):''}${c.id_number?' · 🆔 '+esc(c.id_number):''}</div>`:''}${u?`<div class="muted small">💰 Served by ${esc(u.name)}</div>`:''}</div><div class="field-label" style="margin-bottom:8px">Items (${items.length})</div><div style="background:var(--glass-hover);border-radius:var(--radius-md);padding:8px;margin-bottom:14px;max-height:260px;overflow-y:auto">${items.map(it => `<div style="padding:8px 10px;border-bottom:1px solid var(--separator)"><div class="row gap" style="flex-wrap:wrap;margin-bottom:3px">${codeChip(it.item_code, it.item_type==='accessory', it.item_type==='reload'||it.item_type==='manual', it.barcode)}<span class="strong" style="font-size:12px">${esc(it.description)}</span></div>${it.warranty_months?`<div class="small">${warrantyChip(it.warranty_months)}</div>`:''}<div class="row" style="justify-content:space-between"><span class="muted small">${it.qty} × ${fmtInt(it.price)}</span><span class="strong">${fmtInt(it.qty*it.price)}</span></div></div>`).join('')}</div><div style="background:var(--glass-hover);padding:12px;border-radius:var(--radius-md);margin-bottom:14px"><div class="row" style="justify-content:space-between;margin-bottom:4px"><span>Subtotal</span><span>${fmtInt(s.subtotal)}</span></div>${s.discount?`<div class="row" style="justify-content:space-between;color:var(--orange)"><span>Discount</span><span>-${fmtInt(s.discount)}</span></div>`:''}<div class="row" style="justify-content:space-between;font-weight:800;font-size:16px;margin-top:6px;padding-top:6px;border-top:1px solid var(--separator)"><span>TOTAL</span><span>${fmtInt(s.total)}</span></div><div class="row" style="justify-content:space-between"><span>Paid (${esc(s.payment_method)})</span><span class="success">${fmtInt(saleGiven(s))}</span></div>${s.change > 0.01 ? `<div class="row" style="justify-content:space-between"><span>Change given</span><span class="success">${fmtInt(s.change)}</span></div>` : ''}${s.balance > 0.01 ? `<div class="row" style="justify-content:space-between;color:var(--orange);font-weight:700"><span>Balance due</span><span>${fmtInt(s.balance)}</span></div>` : ''}</div>${returns.length ? `<div style="margin-bottom:14px"><div class="field-label" style="margin-bottom:8px">Returns (${returns.length})</div><div style="background:rgba(255,69,58,.08);border-radius:var(--radius-md);padding:8px">${returns.map(r=>`<div style="padding:6px 8px;border-bottom:1px solid var(--separator)"><div class="strong small">${esc(r.description).slice(0,50)}</div><div class="muted small">${r.qty} × ${fmtInt(r.unit_price)} → refund ${fmtInt(r.refund_amount)} · ${r.restocked?'✅ restocked':'❌ written off'}</div></div>`).join('')}</div></div>` : ''}<div class="row gap" style="flex-wrap:wrap"><button class="ios-pill blue" style="flex:1" onclick="closeModal();printSaleReceipt(${s.id})">🖨️ Print</button><button class="ios-pill wa" style="flex:1" onclick="closeModal();promptWhatsApp(${s.id})">💬 WhatsApp</button></div>`, () => {}, 'Close');
+  openModal(`🧾 ${s.invoice_no}`, `<div style="background:var(--glass-hover);padding:12px;border-radius:var(--radius-md);margin-bottom:14px"><div class="row gap" style="flex-wrap:wrap;margin-bottom:6px"><span class="strong" style="font-size:14px">${esc(s.invoice_no)}</span>${rt>0?'<span class="danger-c small">↩ returned</span>':''}${s.balance>0?`<span class="warn small">⚠ bal ${fmtInt(s.balance)}</span>`:'<span class="success small">✓ paid</span>'}</div><div class="muted small">📅 ${esc(s.created_at)}</div>${c?`<div class="muted small">👤 ${esc(c.name)}${c.phone?' · 📞 '+esc(c.phone):''}${c.id_number?' · 🆔 '+esc(c.id_number):''}</div>`:''}${u?`<div class="muted small">💰 Served by ${esc(u.name)}</div>`:''}</div><div class="field-label" style="margin-bottom:8px">Items (${items.length})</div><div style="background:var(--glass-hover);border-radius:var(--radius-md);padding:8px;margin-bottom:14px;max-height:260px;overflow-y:auto">${items.map(it => `<div style="padding:8px 10px;border-bottom:1px solid var(--separator)"><div class="row gap" style="flex-wrap:wrap;margin-bottom:3px">${codeChip(it.item_code, it.item_type==='accessory', it.item_type==='reload'||it.item_type==='manual', it.barcode)}<span class="strong" style="font-size:12px">${esc(it.description)}</span></div>${it.warranty_months?`<div class="small">${warrantyChip(it.warranty_months)}</div>`:''}<div class="row" style="justify-content:space-between"><span class="muted small">${it.qty} × ${fmtInt(it.price)}</span><span class="strong">${fmtInt(it.qty*it.price)}</span></div></div>`).join('')}</div><div style="background:var(--glass-hover);padding:12px;border-radius:var(--radius-md);margin-bottom:14px"><div class="row" style="justify-content:space-between;margin-bottom:4px"><span>Subtotal</span><span>${fmtInt(s.subtotal)}</span></div>${s.discount?`<div class="row" style="justify-content:space-between;color:var(--orange)"><span>Discount</span><span>-${fmtInt(s.discount)}</span></div>`:''}<div class="row" style="justify-content:space-between;font-weight:800;font-size:16px;margin-top:6px;padding-top:6px;border-top:1px solid var(--separator)"><span>TOTAL</span><span>${fmtInt(s.total)}</span></div><div class="row" style="justify-content:space-between"><span>Paid (${esc(s.payment_method)})</span><span class="success">${fmtInt(saleGiven(s))}</span></div>${s.change > 0.01 ? `<div class="row" style="justify-content:space-between"><span>Change given</span><span class="success">${fmtInt(s.change)}</span></div>` : ''}${s.balance > 0.01 ? `<div class="row" style="justify-content:space-between;color:var(--orange);font-weight:700"><span>Balance due</span><span>${fmtInt(s.balance)}</span></div>` : ''}</div>${returns.length ? `<div style="margin-bottom:14px"><div class="field-label" style="margin-bottom:8px">Returns (${returns.length})</div><div style="background:rgba(255,69,58,.08);border-radius:var(--radius-md);padding:8px">${returns.map(r=>`<div style="padding:6px 8px;border-bottom:1px solid var(--separator)"><div class="strong small">${esc(r.description).slice(0,50)}</div><div class="muted small">${r.qty} × ${fmtInt(r.unit_price)} → ${r.refund_method==='exchange'?'exchanged (credit '+fmtInt(r.exchange_credit||0)+')':'refund '+fmtInt(r.refund_amount)} · ${r.restocked?'✅ restocked':'❌ written off'}</div></div>`).join('')}</div></div>` : ''}<div class="row gap" style="flex-wrap:wrap"><button class="ios-pill blue" style="flex:1" onclick="closeModal();printSaleReceipt(${s.id})">🖨️ Print</button><button class="ios-pill wa" style="flex:1" onclick="closeModal();promptWhatsApp(${s.id})">💬 WhatsApp</button><button class="ios-pill green" style="flex:1" onclick="saleBillPDF(${s.id},'share')">📤 Send PDF</button><button class="ios-pill" style="flex:1" onclick="saleBillPDF(${s.id},'download')">📄 PDF (A4)</button><button class="ios-pill orange" style="flex:1" onclick="closeModal();showExchangeModal(${s.id})">🔄 Exchange</button></div>`, () => {}, 'Close');
 }
 
 let settingsTab = 'shop', settingsQuery = '';
@@ -4399,7 +4456,7 @@ function renderSettingsBody() {
   if (settingsTab === 'shop') {
     const s = DB.settings;
     const lh = s.shop_logo ? `<img src="${s.shop_logo}" class="logo-preview" alt="">` : `<div class="logo-preview">📱</div>`;
-    body.innerHTML = `<div class="card" style="max-width:600px;margin-bottom:14px"><h3>🖼️ Shop Logo</h3><div class="logo-row">${lh}<div style="flex:1"><div class="muted small" style="margin-bottom:8px">Square image (PNG/JPG, max 500 KB)</div><div class="row gap" style="flex-wrap:wrap"><label class="ios-pill blue sm" style="cursor:pointer;margin:0">📤 Upload<input type="file" accept="image/*" style="display:none" onchange="handleLogoUpload(this.files[0]);this.value=''"></label>${s.shop_logo ? `<button class="ios-pill red sm" onclick="removeLogo()">🗑 Remove</button>` : ''}</div></div></div></div><div class="card" style="max-width:600px"><h3>Shop Info</h3><div class="form-grid">${field('Shop name', `<input id="s-name" class="ios-input" value="${esc(s.shop_name)}">`, true)}${field('Address', `<input id="s-addr" class="ios-input" value="${esc(s.shop_address)}">`)}${field('Phone', `<input id="s-phone" class="ios-input" value="${esc(s.shop_phone)}">`)}${field('Owner WhatsApp number', `<input id="s-owner" class="ios-input" type="tel" placeholder="07xxxxxxxx" value="${esc(s.owner_phone||'')}">`, false, 'Daily reports are sent to this number on WhatsApp')}${field('Subtitle under shop name', `<input id="s-brand" class="ios-input" value="${esc(s.brand_name||'pos-lookmobile')}">`)}${field('Subtitle phone', `<input id="s-bphone" class="ios-input" value="${esc(s.brand_phone||'0756947700')}">`)}${field('Currency', `<input id="s-cur" class="ios-input" value="${esc(s.currency)}">`)}${field('Default low stock', `<input id="s-low" class="ios-input" type="number" value="${s.low_stock}">`)}${field('🖨️ Print paper size', `<select id="s-print" class="ios-input"><option value="58mm" ${s.print_size==='58mm'?'selected':''}>58mm (2" thermal)</option><option value="80mm" ${s.print_size==='80mm'?'selected':''}>80mm (3" thermal)</option><option value="A5" ${s.print_size==='A5'?'selected':''}>A5 paper</option></select>`, false, '2mm/2.5mm thermal printers → choose 58mm')}</div><button class="ios-pill blue mt" onclick="saveSettings()">Save Settings</button></div>`;
+    body.innerHTML = `<div class="card" style="max-width:600px;margin-bottom:14px"><h3>↩️ Undo window</h3><p class="muted small" style="margin:4px 0 10px">After a sale, return, stock change etc. you can undo it within this time. Shortcut: Ctrl+Z.</p><select class="ios-input" style="max-width:240px" onchange="DB.settings.undo_seconds=Number(this.value);save();toast('Undo window saved','success');undoTick()">${[[0,'Off'],[30,'30 seconds'],[60,'1 minute'],[120,'2 minutes'],[300,'5 minutes'],[600,'10 minutes'],[1800,'30 minutes']].map(([v,l]) => `<option value="${v}" ${undoSecs()===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="card" style="max-width:600px;margin-bottom:14px"><h3>🖼️ Shop Logo</h3><div class="logo-row">${lh}<div style="flex:1"><div class="muted small" style="margin-bottom:8px">Square image (PNG/JPG, max 500 KB)</div><div class="row gap" style="flex-wrap:wrap"><label class="ios-pill blue sm" style="cursor:pointer;margin:0">📤 Upload<input type="file" accept="image/*" style="display:none" onchange="handleLogoUpload(this.files[0]);this.value=''"></label>${s.shop_logo ? `<button class="ios-pill red sm" onclick="removeLogo()">🗑 Remove</button>` : ''}</div></div></div></div><div class="card" style="max-width:600px"><h3>Shop Info</h3><div class="form-grid">${field('Shop name', `<input id="s-name" class="ios-input" value="${esc(s.shop_name)}">`, true)}${field('Address', `<input id="s-addr" class="ios-input" value="${esc(s.shop_address)}">`)}${field('Phone', `<input id="s-phone" class="ios-input" value="${esc(s.shop_phone)}">`)}${field('Owner WhatsApp number', `<input id="s-owner" class="ios-input" type="tel" placeholder="07xxxxxxxx" value="${esc(s.owner_phone||'')}">`, false, 'Daily reports are sent to this number on WhatsApp')}${field('Subtitle under shop name', `<input id="s-brand" class="ios-input" value="${esc(s.brand_name||'pos-lookmobile')}">`)}${field('Subtitle phone', `<input id="s-bphone" class="ios-input" value="${esc(s.brand_phone||'0756947700')}">`)}${field('Currency', `<input id="s-cur" class="ios-input" value="${esc(s.currency)}">`)}${field('Default low stock', `<input id="s-low" class="ios-input" type="number" value="${s.low_stock}">`)}${field('🖨️ Print paper size', `<select id="s-print" class="ios-input"><option value="58mm" ${s.print_size==='58mm'?'selected':''}>58mm (2" thermal)</option><option value="80mm" ${s.print_size==='80mm'?'selected':''}>80mm (3" thermal)</option><option value="A5" ${s.print_size==='A5'?'selected':''}>A5 paper</option></select>`, false, '2mm/2.5mm thermal printers → choose 58mm')}</div><button class="ios-pill blue mt" onclick="saveSettings()">Save Settings</button></div>`;
   } else if (settingsTab === 'users') {
     let users = DB.users;
     if (q) users = users.filter(u => (u.username||'').toLowerCase().includes(q) || (u.name||'').toLowerCase().includes(q) || (u.role||'').toLowerCase().includes(q));
@@ -4408,8 +4465,8 @@ function renderSettingsBody() {
     body.innerHTML = `<div class="card" style="max-width:600px;margin-bottom:14px;border-color:rgba(48,209,88,.4)"><h3>🔥 Firebase</h3><div style="padding:12px;background:rgba(48,209,88,.08);border-radius:var(--radius-md);margin-bottom:12px"><div class="strong success" style="margin-bottom:4px">${fbConnected ? '✓ Connected' : '⚠ Offline'}${dirty?` · <span class="warn">Pending sync</span>`:''}</div><div class="muted small">Project: <b>${esc(firebaseConfig.projectId)}</b></div><div class="muted small">Version: <b>${POS_VERSION}</b></div>${dirty?`<div class="muted small" style="margin-top:4px">Last sync: <b>${getLastSyncTs()?new Date(getLastSyncTs()).toLocaleString():'never'}</b></div>`:''}</div><div class="row gap" style="flex-wrap:wrap"><button class="ios-pill green" onclick="manualSync()">🔄 Force Sync${dirty?' ⏳':''}</button><button class="ios-pill" onclick="reloadFromServer()">📥 Reload</button></div></div><div class="card" style="max-width:600px;margin-bottom:14px"><h3>🛡️ Safety Backup</h3><p class="muted small" style="margin-bottom:12px">Local backup — Firebase fail වුනොත් data restore කරනවා</p><button class="ios-pill" onclick="restoreFromSafety()">♻️ Restore from safety backup</button></div><div class="card" style="max-width:600px;margin-bottom:14px"><h3>📤 Backup</h3><div class="row gap" style="flex-wrap:wrap"><button class="ios-pill" onclick="exportJSON()">⬇ Download JSON</button><button class="ios-pill" onclick="importJSON()">⬆ Import JSON</button></div></div><div class="card danger-zone-card" style="max-width:600px"><h3>🗑 DANGER ZONE</h3><p class="danger-text" style="font-size:12px;margin-bottom:14px;font-weight:600">⚠️ <b>PERMANENT</b> — Firebase + ALL devices cache</p><button class="ios-pill red" onclick="resetData()">🗑 DELETE ALL DATA + CACHE</button></div>`;
   }
 }
-function restoreFromSafety() { const b = loadSafetyBackup(); if (!isValidDB(b)) { toast('No valid backup found','error'); return; } if (!confirm('Restore from safety backup?')) return; DB = b; migrateDB(); markDirty(); pushToFirebase(); toast('♻️ Restored from backup','success'); setTimeout(()=>location.reload(), 800); }
-async function reloadFromServer() { if (!confirm('Reload from Firebase?')) return; try { const snap = await fbRef.once('value'); const remote = fromFirebase(snap.val()); if (isValidDB(remote)) { DB = remote; lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal(); clearDirty(); applyTheme(DB.settings.theme||'dark'); applyLogo(); render(); toast('Reloaded','success'); } else toast('Remote data invalid','error'); } catch(e) { toast('Failed: ' + e.message, 'error'); } }
+function restoreFromSafety() { const b = loadSafetyBackup(); if (!isValidDB(b)) { toast('No valid backup found','error'); return; } if (!confirm('Restore from safety backup?')) return; DB = b; undoRebase(); migrateDB(); markDirty(); pushToFirebase(); toast('♻️ Restored from backup','success'); setTimeout(()=>location.reload(), 800); }
+async function reloadFromServer() { if (!confirm('Reload from Firebase?')) return; try { const snap = await fbRef.once('value'); const remote = fromFirebase(snap.val()); if (isValidDB(remote)) { DB = remote; undoRebase(); lastSyncedDB = deepClone(remote); migrateDB(); cacheLocal(); clearDirty(); applyTheme(DB.settings.theme||'dark'); applyLogo(); render(); toast('Reloaded','success'); } else toast('Remote data invalid','error'); } catch(e) { toast('Failed: ' + e.message, 'error'); } }
 function saveSettings() { DB.settings.shop_name = document.getElementById('s-name').value.trim() || 'PHONE HUB'; DB.settings.shop_address = document.getElementById('s-addr').value.trim(); DB.settings.shop_phone = document.getElementById('s-phone').value.trim(); DB.settings.currency = document.getElementById('s-cur').value.trim() || 'LKR'; DB.settings.low_stock = Number(document.getElementById('s-low').value || 2); DB.settings.print_size = document.getElementById('s-print').value || '58mm'; DB.settings.brand_name = document.getElementById('s-brand').value.trim() || 'pos-lookmobile'; DB.settings.brand_phone = document.getElementById('s-bphone').value.trim() || '0756947700'; DB.settings.owner_phone = (document.getElementById('s-owner')?.value || '').trim(); save(); applyBrand(); toast('Settings saved','success'); document.getElementById('side-shop-name').textContent = DB.settings.shop_name; }
 
 async function resetData() {
@@ -4467,13 +4524,296 @@ function applyPrintSize() {
   else if (size === '80mm') style.textContent = '@media print { @page { size: 80mm auto; margin: 2mm; } html, body { width: 80mm !important; margin:0 !important; } #receipt { width: 76mm; font-size: 11px; line-height: 1.35; padding: 1mm; } #receipt .receipt-logo { max-width: 50mm; max-height: 18mm; } }';
   else style.textContent = '@media print { @page { size: A5; margin: 10mm; } html, body { width: auto !important; margin:0 !important; } #receipt { width: 100%; font-size: 12px; line-height: 1.4; } #receipt .receipt-logo { max-width: 30mm; max-height: 30mm; } }';
 }
+
+
+/* ================= v5.3: UNDO (time-limited, record level) ================= */
+const UNDO_SKIP = ['audit_logs','developer_notifications','users'];
+const UNDO_LS = 'pos_undo_stack';
+let undoBase = null, undoStack = [], undoApplying = false, undoHiddenId = null;
+function undoSecs() { const v = DB && DB.settings ? DB.settings.undo_seconds : undefined; return v === undefined || v === null || v === '' ? 120 : Number(v) || 0; }
+function undoSnap() {
+  const o = { ids: deepClone(DB.ids || {}) };
+  for (const c of SYNC_COLLECTIONS) { if (UNDO_SKIP.includes(c)) continue; o[c] = new Map((DB[c] || []).map(x => [String(x.id), JSON.stringify(x)])); }
+  return o;
+}
+function undoRebase() { undoBase = null; setTimeout(() => { try { if (!undoBase && DB && DB.users) undoBase = undoSnap(); } catch (e) {} }, 0); }
+function undoCapture() {
+  try {
+    if (undoApplying || !DB || !DB.users) return;
+    if (!undoBase) { undoBase = undoSnap(); return; }
+    const before = {}, after = {}, next = { ids: deepClone(DB.ids || {}) }; let n = 0;
+    for (const c of SYNC_COLLECTIONS) {
+      if (UNDO_SKIP.includes(c)) continue;
+      const oldM = undoBase[c] || new Map(), newM = new Map();
+      for (const x of (DB[c] || [])) {
+        const id = String(x.id), js = JSON.stringify(x); newM.set(id, js);
+        const o = oldM.get(id);
+        if (o !== js) { before[c + '/' + id] = o === undefined ? null : JSON.parse(o); after[c + '/' + id] = JSON.parse(js); n++; }
+      }
+      for (const [id, o] of oldM) if (!newM.has(id)) { before[c + '/' + id] = JSON.parse(o); after[c + '/' + id] = null; n++; }
+      next[c] = newM;
+    }
+    const idsBefore = undoBase.ids, idsAfter = next.ids;
+    undoBase = next;
+    const secs = undoSecs();
+    if (!n || secs <= 0) return;
+    const t = Date.now(), uid = currentUser ? currentUser.id : null, last = undoStack[undoStack.length - 1];
+    if (last && t - last.ts < 1500 && last.user === uid && last.expires > t) {
+      for (const k in before) if (!(k in last.before)) last.before[k] = before[k];
+      for (const k in after) last.after[k] = after[k];
+      last.idsAfter = idsAfter; last.expires = t + secs * 1000; last.label = undoLabel(last);
+    } else {
+      const e = { id: t + '-' + Math.random().toString(36).slice(2, 6), ts: t, expires: t + secs * 1000, secs, user: uid, userName: currentUser ? currentUser.name : '', before, after, idsBefore, idsAfter };
+      e.label = undoLabel(e); undoStack.push(e); undoHiddenId = null;
+    }
+    undoPersist(); undoTick();
+  } catch (e) { console.warn('undo capture failed', e); }
+}
+function undoLabel(e) {
+  const LBL = { sales:'🛒 Sale', returns:'↩️ Return', stock_units:'📱 Phone stock', accessories:'📦 Accessory stock', products:'📋 Phone model', repairs:'🔧 Repair', credit_payments:'💳 Credit payment', cash_transactions:'💵 Cash entry', expenses:'🧾 Expense', customers:'👤 Customer', shops:'🏪 Shop', shop_repairs:'🔧 Shop repair', shop_payments:'💳 Shop payment', suppliers:'🚚 Supplier', stock_adjustments:'📦 Stock adjustment', reload_entries:'📲 Reload', orders:'📑 Order', staff:'👥 Staff', salary_payments:'💰 Salary' };
+  const by = {};
+  for (const k in e.after) { const c = k.split('/')[0], b = e.before[k], a = e.after[k]; const g = by[c] = by[c] || { add:[], del:[], chg:[] }; (b === null ? g.add : (a === null ? g.del : g.chg)).push(a || b); }
+  const nm = r => (r && (r.invoice_no || r.name || r.job_no || r.description || r.title || r.shop_name)) || '';
+  if (by.sales && by.sales.add.length) { const sl = by.sales.add[0]; return `${sl.exchange ? '🔄 Exchange' : '🛒 Sale'} ${sl.invoice_no || ''} · ${fmtInt(sl.total)}`; }
+  if (by.sales && by.sales.del.length) return `🗑️ Sale deleted ${nm(by.sales.del[0])}`;
+  if (by.returns && by.returns.add.length) return `↩️ Return · ${by.returns.add.length} item${by.returns.add.length > 1 ? 's' : ''} (${by.returns.add[0].invoice_no || ''})`;
+  const order = ['stock_units','accessories','products','repairs','credit_payments','cash_transactions','expenses','customers','shops','shop_repairs','shop_payments','suppliers','stock_adjustments','reload_entries','orders','staff','salary_payments'];
+  const c = order.find(x => by[x]) || Object.keys(by)[0], g = by[c], parts = [];
+  if (g.add.length) parts.push(g.add.length + ' added'); if (g.chg.length) parts.push(g.chg.length + ' updated'); if (g.del.length) parts.push(g.del.length + ' deleted');
+  const first = nm(g.add[0] || g.chg[0] || g.del[0]);
+  return `${LBL[c] || ('📝 ' + c)} · ${parts.join(', ')}${first ? ': ' + String(first).slice(0, 36) : ''}`;
+}
+function undoPersist() { try { localStorage.setItem(UNDO_LS, JSON.stringify(undoStack.filter(e => e.expires > Date.now()).slice(-30))); } catch (e) {} }
+function undoLoad() { try { const r = JSON.parse(localStorage.getItem(UNDO_LS) || '[]'); if (Array.isArray(r)) undoStack = r.filter(e => e && e.expires > Date.now() && e.before && e.after); } catch (e) {} }
+function undoAllowed(e) { return !!currentUser && (e.user === currentUser.id || currentUser.role === 'admin' || currentUser.role === 'manager'); }
+function undoActive() { const t = Date.now(); undoStack = undoStack.filter(e => e.expires > t); return undoStack.filter(undoAllowed); }
+function undoConflict(e) {
+  for (const k in e.after) {
+    const i = k.indexOf('/'), c = k.slice(0, i), id = k.slice(i + 1);
+    const cur = (DB[c] || []).find(x => String(x.id) === id), a = e.after[k];
+    if (a === null ? !!cur : (!cur || JSON.stringify(cur) !== JSON.stringify(a))) return k;
+  }
+  return null;
+}
+function undoMMSS(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function undoTick() {
+  let bar = document.getElementById('undo-bar');
+  if (!bar) { bar = document.createElement('div'); bar.id = 'undo-bar'; document.body.appendChild(bar); }
+  const list = (DB && currentUser) ? undoActive() : [], e = list[list.length - 1];
+  if (!e || e.id === undoHiddenId) { bar.style.display = 'none'; return; }
+  const left = e.expires - Date.now(), total = (e.secs || undoSecs() || 1) * 1000;
+  bar.style.display = 'flex';
+  bar.innerHTML = `<span class="ub-label" title="${esc(e.label)}">${esc(e.label)}</span><span class="ub-time">${undoMMSS(left)}</span><button class="ub-go" onclick="undoEntry('${e.id}')">↩️ Undo</button><button onclick="showUndoHistory()" title="Undo history">🕘 ${list.length}</button><button onclick="undoHiddenId='${e.id}';undoTick()" title="Hide">✕</button><div class="ub-prog" style="width:${Math.max(0, Math.min(100, left / total * 100))}%"></div>`;
+}
+function undoLatest() { const l = undoActive(); if (!l.length) { toast('Nothing to undo (time window over)', 'warn'); return; } undoEntry(l[l.length - 1].id); }
+function showUndoHistory() {
+  const list = undoActive().slice().reverse(), now = Date.now();
+  const body = list.length ? list.map(e => { const bad = undoConflict(e); return `<div class="undo-item"><div class="ui-main"><div class="strong" style="font-size:12.5px">${esc(e.label)}</div><div class="muted small">${esc(new Date(e.ts).toLocaleTimeString())} · ${esc(e.userName || '')} · ⏱ ${undoMMSS(e.expires - now)} left${bad ? ' · <span class="warn">blocked by a later change</span>' : ''}</div></div><button class="ios-pill orange sm" ${bad ? 'disabled style="opacity:.4"' : ''} onclick="closeModal();undoEntry('${e.id}')">↩️ Undo</button></div>`; }).join('') : '<p class="muted center pad small">Nothing to undo right now.</p>';
+  openModal('🕘 Undo history', `<div class="muted small" style="margin-bottom:8px">Changes can be undone for ${undoSecs() >= 60 ? Math.round(undoSecs() / 60) + ' min' : undoSecs() + ' s'} after they are made (change in Settings → Shop).</div><div style="max-height:380px;overflow-y:auto">${body}</div>`, () => {}, 'Close');
+}
+function undoEntry(id) {
+  const e = undoStack.find(x => x.id === id);
+  if (!e) { toast('Undo not available', 'warn'); return; }
+  if (e.expires <= Date.now()) { toast('⏱️ Undo time is over', 'warn'); undoTick(); return; }
+  if (!undoAllowed(e)) { toast('Access denied', 'error'); return; }
+  if (undoConflict(e)) { toast('Cannot undo — these records were changed afterwards. Undo the later action first.', 'warn', 5000); return; }
+  if (!confirm('Undo: ' + e.label + ' ?')) return;
+  if (e.expires <= Date.now()) { toast('⏱️ Undo time is over', 'warn'); undoTick(); return; }
+  if (undoConflict(e)) { toast('Cannot undo — records changed meanwhile', 'warn', 4000); return; }
+  undoApplying = true;
+  try {
+    const touched = new Set();
+    for (const k in e.before) {
+      const i0 = k.indexOf('/'), c = k.slice(0, i0), rid = k.slice(i0 + 1), b = e.before[k];
+      const arr = DB[c] || (DB[c] = []), i = arr.findIndex(x => String(x.id) === rid); touched.add(c);
+      if (b === null) { if (i >= 0) arr.splice(i, 1); } else if (i >= 0) arr[i] = deepClone(b); else arr.push(deepClone(b));
+    }
+    touched.forEach(c => DB[c].sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0)));
+    for (const c in (e.idsBefore || {})) if (DB.ids && DB.ids[c] === (e.idsAfter || {})[c]) DB.ids[c] = e.idsBefore[c];
+    try { auditAction('undo', 'undo', e.id, e.label); } catch (x) {}
+    save();
+  } finally { undoApplying = false; }
+  undoBase = undoSnap();
+  undoStack = undoStack.filter(x => x.id !== id); undoPersist();
+  toast('↩️ Undone: ' + e.label, 'success', 3500);
+  try { if (currentView === 'sales') { const inp = document.getElementById('sales-search-input'); renderSalesCats(); salesSearch(inp ? inp.value : ''); } else render(); } catch (x) {}
+  undoTick();
+}
+document.addEventListener('keydown', ev => {
+  if (!(ev.ctrlKey || ev.metaKey) || ev.shiftKey || (ev.key || '').toLowerCase() !== 'z') return;
+  const t = ev.target, tag = (t && t.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable)) return;
+  if (document.getElementById('modal-root') && document.getElementById('modal-root').children.length) return;
+  if (!undoActive().length) return;
+  ev.preventDefault(); undoLatest();
+});
+undoLoad(); setInterval(() => { try { undoTick(); } catch (e) {} }, 1000);
+
+/* ================= v5.2: EXCHANGE ================= */
+function exApply(it, sale, inv) {
+  const si = DB.sale_items.find(x => x.id === it.sale_item_id) || {};
+  const good = it.cond === 'good', q = Number(it.qty)||0;
+  DB.sale_items.push({ id:nextId('sale_items'), sale_id:sale.id, item_type:'exreturn', repair_id:null, category:si.category||'', item_code:it.code||'', barcode:it.barcode||'', warranty_months:0, stock_unit_id:it.unit_id||null, accessory_id:it.accessory_id||null, batch_id:null, product_id:it.product_id||null, description:'RETURNED: '+it.desc, free:false, price:it.price, list_price:it.price, item_disc:0, qty:q, cost:it.cost, ex_orig_sale_id:it.orig_sale_id, ex_orig_invoice:it.orig_invoice, ex_cond:it.cond });
+  DB.returns.push({ id:nextId('returns'), sale_id:it.orig_sale_id, sale_item_id:it.sale_item_id, invoice_no:it.orig_invoice, item_type:it.src_type, item_code:it.code||'', description:it.desc, qty:q, unit_price:-it.price, original_amount:(Number(si.price)||0)*q, refund_amount:0, exchange_credit:(-it.price)*q, exchange_sale_id:sale.id, exchange_invoice:inv, refund_method:'exchange', reason:'Exchange', notes:'Exchanged on '+inv, condition:it.cond, restocked:good, created_at:now(), user_id:currentUser?.id||null });
+  if (it.src_type === 'phone') {
+    const u = it.unit_id ? DB.stock_units.find(x => x.id === it.unit_id) : null;
+    if (u) { if (good) { u.status = 'in_stock'; u.sold_at = null; u.returned_at = now(); } else { u.status = 'returned'; u.returned_at = now(); } }
+  } else if (it.src_type === 'accessory') {
+    let a = it.accessory_id ? DB.accessories.find(x => x.id === it.accessory_id) : null;
+    if (!a && it.code) a = DB.accessories.find(x => x.code === it.code);
+    if (a && good) accRestock(a, si, q);
+  }
+}
+function showExchangeFinder() {
+  openModal('🔄 Exchange — find the old bill', `<input id="ex-find" class="ios-input" placeholder="Invoice no / customer / phone / IMEI / item" oninput="exFindRender(this.value)" autocomplete="off"><div id="ex-find-list" style="margin-top:10px;max-height:380px;overflow-y:auto"></div>`, () => {}, 'Close');
+  exFindRender('');
+}
+function exFindRender(v) {
+  const el = document.getElementById('ex-find-list'); if (!el) return;
+  const q = (v||'').trim().toLowerCase();
+  let list = DB.sales.slice();
+  if (q) list = list.filter(s => { const c = DB.customers.find(x => x.id === s.customer_id); if ([s.invoice_no, c?.name, c?.phone].some(x => (x||'').toLowerCase().includes(q))) return true; return DB.sale_items.some(it => it.sale_id === s.id && [it.description, it.item_code, it.barcode].some(x => (x||'').toLowerCase().includes(q))); });
+  list = list.sort((a,b) => b.id - a.id).slice(0, 25);
+  el.innerHTML = list.length ? list.map(s => {
+    const c = DB.customers.find(x => x.id === s.customer_id);
+    const its = DB.sale_items.filter(i => i.sale_id === s.id && ['phone','accessory'].includes(i.item_type));
+    return `<div class="ex-find-item" onclick="closeModal();showExchangeModal(${s.id})"><div class="row" style="justify-content:space-between"><b>${esc(s.invoice_no)}</b><span class="strong">${fmtInt(s.total)}</span></div><div class="muted small">${esc((s.created_at||'').slice(0,16))} · ${esc(c?.name||'Walk-in')}${c?.phone?' · '+esc(c.phone):''}</div><div class="small">${its.slice(0,3).map(i => esc(i.description).slice(0,50)).join(' · ')}${its.length>3?' …':''}</div></div>`;
+  }).join('') : '<p class="muted center pad small">No bills found</p>';
+  const inp = document.getElementById('ex-find'); if (inp && !inp.dataset.f) { inp.dataset.f = 1; inp.focus(); }
+}
+function exToggle(id) {
+  const c = document.getElementById('ex-chk-'+id), ct = document.getElementById('ex-controls-'+id), r = document.getElementById('ex-row-'+id);
+  if (!c || !ct || !r) return;
+  ct.style.display = c.checked ? 'flex' : 'none'; r.classList.toggle('selected', c.checked);
+}
+function showExchangeModal(saleId) {
+  const sale = DB.sales.find(x => x.id === saleId); if (!sale) return;
+  const ar = {}; DB.returns.forEach(r => { ar[r.sale_item_id] = (ar[r.sale_item_id]||0) + (Number(r.qty)||0); });
+  const inCart = {}; if (currentView === 'sales') cart.forEach(c => { if (c.type === 'exreturn') inCart[c.sale_item_id] = (inCart[c.sale_item_id]||0) + c.qty; });
+  const list = DB.sale_items.filter(i => i.sale_id === saleId && ['phone','accessory'].includes(i.item_type));
+  if (!list.length) { toast('No exchangeable items in this bill','warn'); return; }
+  const c = DB.customers.find(x => x.id === sale.customer_id);
+  const rows = list.map(si => {
+    const rem = (Number(si.qty)||0) - (ar[si.id]||0) - (inCart[si.id]||0);
+    const isAcc = si.item_type === 'accessory';
+    if (rem <= 0) return `<div class="return-item" style="opacity:.5"><div style="flex:1"><div class="row gap" style="flex-wrap:wrap">${codeChip(si.item_code, isAcc)}<span class="strong" style="font-size:12px">${esc(si.description)}</span></div><div class="small danger-c">Already returned / exchanged</div></div></div>`;
+    return `<div class="return-item" id="ex-row-${si.id}"><div style="display:flex;align-items:center;gap:10px;width:100%"><input type="checkbox" id="ex-chk-${si.id}" data-rem="${rem}" onchange="exToggle(${si.id})"><div style="flex:1"><div class="row gap" style="margin-bottom:2px;flex-wrap:wrap">${codeChip(si.item_code, isAcc)}<span class="strong" style="font-size:12px">${esc(si.description)}</span></div><div class="muted small">Sold at ${fmtInt(si.price)} · Qty left to return: ${rem}</div></div></div><div id="ex-controls-${si.id}" style="display:none;width:100%;gap:8px;flex-wrap:wrap;margin-top:8px;padding-left:26px"><div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:9.5px;font-weight:700;text-transform:uppercase;color:var(--text-3)">Qty</span><input type="number" id="ex-qty-${si.id}" class="ios-input" style="width:70px;padding:6px" value="${rem}" min="1" max="${rem}"></div><div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:9.5px;font-weight:700;text-transform:uppercase;color:var(--text-3)">Credit / unit</span><input type="number" id="ex-amt-${si.id}" class="ios-input" style="width:110px;padding:6px" value="${Number(si.price)||0}" min="0" step="0.01"></div><div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:130px"><span style="font-size:9.5px;font-weight:700;text-transform:uppercase;color:var(--text-3)">Condition</span><select id="ex-cond-${si.id}" class="ios-input" style="padding:6px"><option value="good">✅ Good → back to stock</option><option value="damaged">❌ Damaged → write-off</option></select></div></div></div>`;
+  }).join('');
+  openModal(`🔄 Exchange — ${sale.invoice_no}`, `<div class="form-grid"><div class="credit-notice" style="background:rgba(100,210,255,.12);border-color:rgba(100,210,255,.5);color:var(--teal);font-size:11.5px">💡 Select the item the customer is returning. It goes into the cart as a <b>minus</b> line — then add the new item(s) (and anything else) and complete the sale. One bill shows everything.</div><div class="muted small">${esc(c?.name||'Walk-in')}${c?.phone?' · '+esc(c.phone):''} · ${esc((sale.created_at||'').slice(0,16))}</div><div style="max-height:360px;overflow-y:auto;padding-right:4px">${rows}</div></div>`, () => {
+    const ex = [];
+    for (const si of list) {
+      const chk = document.getElementById('ex-chk-'+si.id); if (!chk || !chk.checked) continue;
+      const rem = Number(chk.dataset.rem)||0, qty = Math.floor(Number(document.getElementById('ex-qty-'+si.id)?.value)||0);
+      if (qty < 1 || qty > rem) { toast('Check the quantity','error'); return false; }
+      const amt = Number(document.getElementById('ex-amt-'+si.id)?.value);
+      if (!(amt >= 0)) { toast('Check the credit amount','error'); return false; }
+      const cond = document.getElementById('ex-cond-'+si.id)?.value || 'good';
+      const desc = si.free ? String(si.description||'').replace(/^FREE: /,'') : si.description;
+      ex.push({ type:'exreturn', sale_item_id:si.id, orig_sale_id:saleId, orig_invoice:sale.invoice_no, ex_customer_id:sale.customer_id||null, src_type:si.item_type, unit_id:si.stock_unit_id||null, accessory_id:si.accessory_id||null, product_id:si.product_id||null, code:si.item_code||'', barcode:si.barcode||'', desc, price:-amt, list_price:-amt, qty, cost: cond === 'good' ? -(Number(si.cost)||0) : 0, cond });
+    }
+    if (!ex.length) { toast('Select the returned item(s)','error'); return false; }
+    const keep = currentView === 'sales' ? cart.slice() : [];
+    pendingCartItems.push(...keep, ...ex);
+    window.__pendingExCust = c ? { name:c.name||'', phone:c.phone||'' } : null;
+    setTimeout(() => { navigateTo('sales'); toast('↩️ Returned item added to cart — add the new item(s), then Complete Sale','success',5000); }, 30);
+  }, '↩️ Add to cart');
+}
+
+/* ================= v5.2: INVOICE FILTER BAR ================= */
+function invFilterBar() {
+  const pills = [['all','All'],['paid','✅ Paid'],['due','⚠️ Balance due'],['returned','↩️ Returned'],['exchange','🔄 Exchange']].map(([k,l]) => `<div class="filter-pill ${repInvStatus===k?'active':''}" onclick="repInvStatus='${k}';runReport()">${l}</div>`).join('');
+  const pm = [['all','All payments'],['cash','💵 Cash'],['card','💳 Card'],['bank','🏦 Bank'],['qr','📱 QR']].map(([k,l]) => `<option value="${k}" ${repInvMethod===k?'selected':''}>${l}</option>`).join('');
+  const us = (DB.users||[]).length > 1 ? `<select class="ios-input" onchange="repInvUser=this.value;runReport()"><option value="all">All cashiers</option>${DB.users.map(u => `<option value="${u.id}" ${repInvUser===String(u.id)?'selected':''}>${esc(u.name||u.username||'')}</option>`).join('')}</select>` : '';
+  return `<div class="filter-pills" style="margin-bottom:8px">${pills}</div><div class="row gap inv-filters" style="margin-bottom:12px;flex-wrap:wrap"><select class="ios-input" onchange="repInvMethod=this.value;runReport()">${pm}</select>${us}</div>`;
+}
+
+/* ================= v5.2: A4 PDF BILL ================= */
+function buildBillHTML(sale) {
+  const cfg = DB.settings || {}, c = DB.customers.find(x => x.id === sale.customer_id), u = DB.users.find(x => x.id === sale.user_id);
+  const items = DB.sale_items.filter(i => i.sale_id === sale.id);
+  const newIt = items.filter(i => i.item_type !== 'exreturn'), exIt = items.filter(i => i.item_type === 'exreturn');
+  const isEx = exIt.length > 0 || !!sale.exchange;
+  const newSub = newIt.reduce((a,i) => a + (Number(i.price)||0)*(Number(i.qty)||0), 0);
+  const credit = exIt.reduce((a,i) => a - (Number(i.price)||0)*(Number(i.qty)||0), 0);
+  const acc = '#1f3a68';
+  const th = 'padding:8px;text-align:left;background:#eef1f6;border-bottom:2px solid #cfd6e2;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:#334;';
+  const td = 'padding:8px;border-bottom:1px solid #e6e9ee;vertical-align:top;';
+  const rowHTML = (it, n, neg) => {
+    const w = warrantyText(it.warranty_months), unit = Math.abs(Number(it.price)||0), amt = unit*(Number(it.qty)||0), col = neg ? 'color:#c0392b;' : '';
+    const code = it.item_code ? `<span style="color:#667;font-size:10.5px">[${esc(it.item_code)}]</span> ` : '';
+    return `<tr style="page-break-inside:avoid"><td style="${td}${col}">${n}</td><td style="${td}${col}">${code}<b>${esc(String(it.description||'').replace(/^RETURNED: /,''))}</b>${it.barcode?`<div style="font-size:10px;color:#889">Barcode: ${esc(it.barcode)}</div>`:''}${w?`<div style="font-size:10.5px;color:#2a7a3b">Warranty: ${esc(w)}</div>`:''}${it.item_disc>0?`<div style="font-size:10.5px;color:#b36b00">Discount -${fmt(it.item_disc*it.qty)}</div>`:''}${neg&&it.ex_cond?`<div style="font-size:10.5px">${it.ex_cond==='good'?'Returned to stock':'Written off (damaged)'}</div>`:''}</td><td style="${td}${col}text-align:right">${it.qty}</td><td style="${td}${col}text-align:right">${neg?'-':''}${fmt(unit)}</td><td style="${td}${col}text-align:right"><b>${neg?'-':''}${fmt(amt)}</b></td></tr>`;
+  };
+  const head = `<tr><th style="${th}width:28px">#</th><th style="${th}">Description</th><th style="${th}text-align:right;width:44px">Qty</th><th style="${th}text-align:right;width:92px">Unit price</th><th style="${th}text-align:right;width:100px">Amount</th></tr>`;
+  const tableOf = (title, color, arr, neg) => arr.length ? `<div style="margin:14px 0 6px;font-weight:700;font-size:12px;color:${color};text-transform:uppercase;letter-spacing:.05em">${title}</div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead>${head}</thead><tbody>${arr.map((it,i) => rowHTML(it, i+1, neg)).join('')}</tbody></table>` : '';
+  const line = (l, v, st='') => `<tr><td style="padding:4px 8px;${st}">${l}</td><td style="padding:4px 8px;text-align:right;${st}">${v}</td></tr>`;
+  const refund = sale.total < -0.009, even = isEx && Math.abs(sale.total) <= 0.009;
+  const totalLabel = refund ? 'REFUND TO CUSTOMER' : (even ? 'NET DIFFERENCE' : (isEx ? 'AMOUNT TO PAY' : 'TOTAL'));
+  let tot = '';
+  if (isEx) { tot += line('New items', fmt(newSub)); tot += line('Less: returned items (credit)', '-' + fmt(credit), 'color:#c0392b;'); }
+  else tot += line('Subtotal', fmt(sale.subtotal));
+  if (sale.discount) tot += line('Discount', '-' + fmt(sale.discount), 'color:#b36b00;');
+  tot += `<tr><td style="padding:8px;border-top:2px solid ${acc};font-weight:800;font-size:14px;color:${acc}">${totalLabel}</td><td style="padding:8px;border-top:2px solid ${acc};text-align:right;font-weight:800;font-size:15px;color:${acc}">${fmt(Math.abs(sale.total))}</td></tr>`;
+  if (refund) tot += line('Refunded (cash)', fmt(-sale.total));
+  else if (!even) { tot += line(`Paid (${esc(sale.payment_method||'cash')})`, fmt(saleGiven(sale))); if (sale.change > 0.01) tot += line('Change', fmt(sale.change)); }
+  if (sale.balance > 0.01) tot += line('Balance due', fmt(sale.balance), 'color:#c0392b;font-weight:700;');
+  if (c && (Number(c.balance)||0) > 0.01) tot += line('Total owed by customer', fmt(c.balance), 'font-weight:700;');
+  const stamp = sale.balance > 0.01 ? ['BALANCE DUE','#c0392b'] : (refund ? ['REFUNDED','#2a7a3b'] : (even ? ['EVEN EXCHANGE','#2a7a3b'] : ['PAID','#2a7a3b']));
+  const rets = DB.returns.filter(r => r.sale_id === sale.id);
+  const retHTML = rets.length ? `<div style="margin-top:14px;padding:8px 10px;background:#fff4f2;border:1px solid #f3c9c3;border-radius:6px;font-size:11.5px"><b style="color:#c0392b">Returns / exchanges on this invoice</b>${rets.map(r => `<div style="margin-top:3px">${esc(r.description)} — ${r.qty} × ${fmt(r.unit_price)} → ${r.refund_method==='exchange' ? 'exchanged on '+esc(r.exchange_invoice||'')+' (credit '+fmt(r.exchange_credit||0)+')' : 'refund '+fmt(r.refund_amount)}</div>`).join('')}</div>` : '';
+  const exNote = sale.exchange_from && sale.exchange_from.length ? `<div style="font-size:11px;color:#556;margin-top:2px">Exchange against: ${sale.exchange_from.map(esc).join(', ')}</div>` : '';
+  return `<div style="width:190mm;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12px;line-height:1.45;background:#fff">
+    <table style="width:100%;border-collapse:collapse"><tr>
+      <td style="vertical-align:top;width:62%">${cfg.shop_logo ? `<img src="${cfg.shop_logo}" alt="" style="max-height:78px;max-width:150px;object-fit:contain;display:block;margin-bottom:6px">` : ''}<div style="font-size:20px;font-weight:800;color:${acc}">${esc(cfg.shop_name||'')}</div>${cfg.shop_address?`<div>${esc(cfg.shop_address)}</div>`:''}${cfg.shop_phone?`<div>Tel: ${esc(cfg.shop_phone)}</div>`:''}</td>
+      <td style="vertical-align:top;text-align:right"><div style="font-size:24px;font-weight:800;letter-spacing:.04em;color:${acc}">${isEx ? 'EXCHANGE INVOICE' : 'INVOICE'}</div><div style="margin-top:6px"><b>${esc(sale.invoice_no)}</b></div><div>${esc((sale.created_at||'').slice(0,16).replace('T',' '))}</div>${exNote}<div style="display:inline-block;margin-top:8px;padding:3px 12px;border:2px solid ${stamp[1]};color:${stamp[1]};font-weight:800;border-radius:6px;letter-spacing:.06em">${stamp[0]}</div></td>
+    </tr></table>
+    <div style="height:3px;background:${acc};margin:12px 0"></div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px"><tr>
+      <td style="vertical-align:top"><div style="font-size:10.5px;text-transform:uppercase;color:#778;letter-spacing:.05em">Billed to</div><div style="font-weight:700;font-size:13px">${esc(c?.name||'Walk-in customer')}</div>${c?.phone?`<div>${esc(c.phone)}</div>`:''}${c?.address?`<div>${esc(c.address)}</div>`:''}${c?.id_number?`<div>NIC: ${esc(c.id_number)}</div>`:''}</td>
+      <td style="vertical-align:top;text-align:right">${u?`<div style="font-size:10.5px;text-transform:uppercase;color:#778;letter-spacing:.05em">Served by</div><div style="font-weight:700">${esc(u.name||'')}</div>`:''}</td>
+    </tr></table>
+    ${tableOf(isEx ? 'Returned items (credit)' : '', '#c0392b', exIt, true)}
+    ${tableOf(isEx ? 'New items' : 'Items', acc, newIt, false)}
+    <table style="width:55%;margin-left:45%;margin-top:14px;border-collapse:collapse;font-size:12px;page-break-inside:avoid"><tbody>${tot}</tbody></table>
+    ${retHTML}
+    <div style="margin-top:26px;padding-top:10px;border-top:1px solid #d5dae3;text-align:center;color:#556;font-size:11.5px">Thank you for shopping with us!<div style="font-size:10px;color:#99a;margin-top:3px">POS SYSTEM BY LOOK MOBILE 0756947700.</div></div>
+  </div>`;
+}
+async function saleBillBlob(sale) {
+  if (typeof html2pdf === 'undefined') throw new Error('PDF library not loaded — check the internet connection');
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;left:-10000px;top:0;width:190mm;background:#fff;z-index:-1';
+  wrap.innerHTML = buildBillHTML(sale);
+  document.body.appendChild(wrap);
+  try {
+    await Promise.all([...wrap.querySelectorAll('img')].map(im => im.complete ? 1 : new Promise(r => { im.onload = im.onerror = r; })));
+    return await html2pdf().set({ margin:[10,10,10,10], image:{ type:'jpeg', quality:0.96 }, html2canvas:{ scale:2, useCORS:true, backgroundColor:'#ffffff' }, jsPDF:{ unit:'mm', format:'a4', orientation:'portrait' }, pagebreak:{ mode:['css','legacy'], avoid:['tr'] } }).from(wrap.firstElementChild).outputPdf('blob');
+  } finally { wrap.remove(); }
+}
+async function saleBillPDF(saleId, mode) {
+  const sale = DB.sales.find(x => x.id === saleId); if (!sale) return;
+  const name = 'Invoice_' + String(sale.invoice_no||saleId).replace(/[^\w\-]+/g,'_') + '.pdf';
+  toast('Preparing A4 PDF…','info',1800);
+  try {
+    const blob = await saleBillBlob(sale);
+    const file = new File([blob], name, { type:'application/pdf' });
+    if (mode === 'share' && navigator.canShare && navigator.canShare({ files:[file] })) {
+      try { await navigator.share({ files:[file], title:sale.invoice_no, text:(DB.settings.shop_name||'') + ' — Invoice ' + sale.invoice_no }); return; }
+      catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    const url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    toast(mode === 'share' ? '📄 PDF saved — attach it in WhatsApp / Email' : '📄 PDF downloaded', 'success', 4000);
+  } catch (e) { console.error(e); toast('PDF failed: ' + (e.message||e), 'error', 5000); }
+}
+
 function printSaleReceipt(saleId) {
   const s = DB.sales.find(x=>x.id===saleId); if (!s) return;
   const items = DB.sale_items.filter(i=>i.sale_id===saleId);
   const c = DB.customers.find(x=>x.id===s.customer_id); const u = DB.users.find(x=>x.id===s.user_id);
   const cfg = DB.settings; const saleReturns = DB.returns.filter(r => r.sale_id === saleId);
   applyPrintSize();
-  document.getElementById('receipt').innerHTML = `<div class="center">${cfg.shop_logo ? `<img src="${cfg.shop_logo}" class="receipt-logo" alt="">` : ''}<div style="font-size:14px;font-weight:bold">${esc(cfg.shop_name)}</div><div>${esc(cfg.shop_address)}</div><div>${esc(cfg.shop_phone)}</div></div><hr><div class="row-line"><span>Invoice:</span><span>${esc(s.invoice_no)}</span></div><div class="row-line"><span>Date:</span><span>${esc(s.created_at)}</span></div>${c ? `<div class="row-line"><span>Customer:</span><span>${esc(c.name)}</span></div>` : ''}${c && c.phone ? `<div class="row-line"><span>Phone:</span><span>${esc(c.phone)}</span></div>` : ''}${u ? `<div class="row-line"><span>Served by:</span><span>${esc(u.name)}</span></div>` : ''}<hr>${items.map(it => { const isR = it.item_type === 'reload'; const isM = it.item_type === 'manual'; const cat = it.category || (it.accessory_id ? (DB.accessories.find(a=>Number(a.id)===Number(it.accessory_id))?.category || '') : ''); const w = warrantyText(it.warranty_months); const ic = isR ? '💳 ' : (isM ? '📦 ' : ''); const ct = it.item_code || (isR ? 'Reload' : ''); const cp = ct ? `[${esc(ct)}]` : ''; return `<div>${ic}${cp}${it.barcode?' 🏷️'+esc(it.barcode):''} ${esc(it.description)}${cat ? ` · ${esc(cat)}` : ''}</div>${w ? `<div style="padding-left:8px">  Warranty: ${w}</div>` : ''}<div class="row-line"><span>  ${it.qty} x ${fmt(it.price)}${it.item_disc>0?' (-'+fmt(it.item_disc)+')':''}</span><span>${fmt(it.qty*it.price)}</span></div>`; }).join('')}<hr><div class="row-line"><span>Subtotal:</span><span>${fmt(s.subtotal)}</span></div>${s.discount ? `<div class="row-line"><span>Discount:</span><span>-${fmt(s.discount)}</span></div>` : ''}<div class="row-line" style="font-weight:bold"><span>TOTAL:</span><span>${fmt(s.total)}</span></div><div class="row-line"><span>Paid (${esc(s.payment_method)}):</span><span>${fmt(saleGiven(s))}</span></div>${s.change > 0.01 ? `<div class="row-line"><span>Change:</span><span>${fmt(s.change)}</span></div>` : ''}${s.balance > 0 ? `<div class="row-line"><span>Balance:</span><span>${fmt(s.balance)}</span></div>` : ''}${c && c.balance > 0 ? `<div class="row-line" style="font-weight:bold"><span>Total Owed:</span><span>${fmt(c.balance)}</span></div>` : ''}${saleReturns.length ? `<hr><div class="center" style="font-weight:bold">RETURNS</div>${saleReturns.map(r => `<div>[${esc(r.item_code||'-')}] ${esc(r.description)} ${r.restocked?'✅':'❌'}</div><div class="row-line"><span>  ${r.qty} × ${fmt(r.unit_price)}</span><span>-${fmt(r.refund_amount)}</span></div>`).join('')}` : ''}<hr><div class="center">Thank you!</div><div style="height:15px"></div>`;
+  document.getElementById('receipt').innerHTML = `<div class="center">${cfg.shop_logo ? `<img src="${cfg.shop_logo}" class="receipt-logo" alt="">` : ''}<div style="font-size:14px;font-weight:bold">${esc(cfg.shop_name)}</div><div>${esc(cfg.shop_address)}</div><div>${esc(cfg.shop_phone)}</div></div><hr><div class="row-line"><span>Invoice:</span><span>${esc(s.invoice_no)}</span></div><div class="row-line"><span>Date:</span><span>${esc(s.created_at)}</span></div>${c ? `<div class="row-line"><span>Customer:</span><span>${esc(c.name)}</span></div>` : ''}${c && c.phone ? `<div class="row-line"><span>Phone:</span><span>${esc(c.phone)}</span></div>` : ''}${u ? `<div class="row-line"><span>Served by:</span><span>${esc(u.name)}</span></div>` : ''}<hr>${items.map(it => { const isR = it.item_type === 'reload'; const isM = it.item_type === 'manual'; const cat = it.category || (it.accessory_id ? (DB.accessories.find(a=>Number(a.id)===Number(it.accessory_id))?.category || '') : ''); const w = warrantyText(it.warranty_months); const ic = isR ? '💳 ' : (isM ? '📦 ' : (it.item_type === 'exreturn' ? '↩️ ' : '')); const ct = it.item_code || (isR ? 'Reload' : ''); const cp = ct ? `[${esc(ct)}]` : ''; return `<div>${ic}${cp}${it.barcode?' 🏷️'+esc(it.barcode):''} ${esc(it.description)}${cat ? ` · ${esc(cat)}` : ''}</div>${w ? `<div style="padding-left:8px">  Warranty: ${w}</div>` : ''}<div class="row-line"><span>  ${it.qty} x ${fmt(it.price)}${it.item_disc>0?' (-'+fmt(it.item_disc)+')':''}</span><span>${fmt(it.qty*it.price)}</span></div>`; }).join('')}<hr><div class="row-line"><span>Subtotal:</span><span>${fmt(s.subtotal)}</span></div>${s.discount ? `<div class="row-line"><span>Discount:</span><span>-${fmt(s.discount)}</span></div>` : ''}${s.total < 0 ? `<div class="row-line" style="font-weight:bold"><span>REFUND TO CUSTOMER:</span><span>${fmt(-s.total)}</span></div>` : `<div class="row-line" style="font-weight:bold"><span>${s.exchange ? 'TO PAY (DIFFERENCE):' : 'TOTAL:'}</span><span>${fmt(s.total)}</span></div><div class="row-line"><span>Paid (${esc(s.payment_method)}):</span><span>${fmt(saleGiven(s))}</span></div>`}${s.change > 0.01 ? `<div class="row-line"><span>Change:</span><span>${fmt(s.change)}</span></div>` : ''}${s.balance > 0 ? `<div class="row-line"><span>Balance:</span><span>${fmt(s.balance)}</span></div>` : ''}${c && c.balance > 0 ? `<div class="row-line" style="font-weight:bold"><span>Total Owed:</span><span>${fmt(c.balance)}</span></div>` : ''}${saleReturns.length ? `<hr><div class="center" style="font-weight:bold">RETURNS</div>${saleReturns.map(r => `<div>[${esc(r.item_code||'-')}] ${esc(r.description)} ${r.restocked?'✅':'❌'}</div><div class="row-line"><span>  ${r.qty} × ${fmt(r.unit_price)}</span><span>-${fmt(r.refund_amount)}</span></div>`).join('')}` : ''}<hr><div class="center">Thank you!</div><div style="height:15px"></div>`;
   setTimeout(()=>window.print(),120);
 }
 function printRepairReceipt(repairId) {
@@ -4511,7 +4851,7 @@ async function startPosAfterFirebaseAuth(firebaseUser) {
 
     const cached = loadCache();
     if (isValidDB(cached)) {
-      DB = cached; migrateDB(); applyTheme(uiThemeBoot()); applyLogo();
+      DB = cached; undoRebase(); migrateDB(); applyTheme(uiThemeBoot()); applyLogo();
       document.getElementById('login-shop-name').textContent = DB.settings.shop_name;
     }
     const r = await loadFromServer();
